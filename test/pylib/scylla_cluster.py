@@ -252,14 +252,14 @@ class ScyllaServer:
         self._write_config_file()
 
 
-    async def install_and_start(self, api: ScyllaRESTAPIClient) -> None:
+    async def install_and_start(self, api: ScyllaRESTAPIClient, expected_error: Optional[str] = None) -> None:
         """Setup and start this server"""
         await self.install()
 
         self.logger.info("starting server at host %s in %s...", self.ip_addr, self.workdir.name)
 
         try:
-            await self.start(api)
+            await self.start(api, expected_error)
         except:
             await self.stop()
             raise
@@ -267,6 +267,9 @@ class ScyllaServer:
         if self.cmd:
             self.logger.info("started server at host %s in %s, pid %d", self.ip_addr,
                          self.workdir.name, self.cmd.pid)
+        elif expected_error is not None:
+            self.logger.info("starting server at host %s in %s failed with an expected error",
+                             self.ip_addr, self.workdir.name)
 
     @property
     def is_running(self) -> bool:
@@ -683,7 +686,8 @@ class ScyllaCluster:
                          cmdline: Optional[List[str]] = None,
                          config: Optional[dict[str, Any]] = None,
                          property_file: Optional[dict[str, Any]] = None,
-                         start: bool = True) -> ServerInfo:
+                         start: bool = True,
+                         expected_error: Optional[str] = None) -> ServerInfo:
         """Add a new server to the cluster"""
         self.is_dirty = True
 
@@ -692,10 +696,13 @@ class ScyllaCluster:
         if self.servers and not self.running:
             raise RuntimeError("Can't add the server: all servers in the cluster are stopped")
 
+        assert start or expected_error is None, \
+            f"add_server: cannot add stopped server when expecting an error"
+
         extra_config: dict[str, Any] = config.copy() if config else {}
         if replace_cfg:
             replaced_id = replace_cfg.replaced_id
-            assert replaced_id in self.servers, \
+            assert expected_error is not None or replaced_id in self.servers, \
                 f"add_server: replaced id {replaced_id} not found in existing servers"
 
             replaced_srv = self.servers[replaced_id]
@@ -707,9 +714,9 @@ class ScyllaCluster:
             if replace_cfg.ignore_dead_nodes:
                 extra_config['ignore_dead_nodes_for_replace'] = ','.join(replace_cfg.ignore_dead_nodes)
 
-            assert replaced_id not in self.removed, \
+            assert expected_error is not None or replaced_id not in self.removed, \
                 f"add_server: cannot replace removed server {replaced_srv}"
-            assert replaced_id in self.stopped, \
+            assert expected_error is not None or replaced_id in self.stopped, \
                 f"add_server: cannot replace running server {replaced_srv}"
 
         if replace_cfg and replace_cfg.reuse_ip_addr:
@@ -738,7 +745,7 @@ class ScyllaCluster:
             server = self.create_server(params)
             self.logger.info("Cluster %s adding server...", self)
             if start:
-                await server.install_and_start(self.api)
+                await server.install_and_start(self.api, expected_error)
             else:
                 await server.install()
         except Exception as exc:
@@ -748,7 +755,7 @@ class ScyllaCluster:
                 self.leased_ips.remove(ip_addr)
                 await self.host_registry.release_host(Host(ip_addr))
             raise
-        if start:
+        if start and expected_error is None:
             self.running[server.server_id] = server
         else:
             self.stopped[server.server_id] = server
@@ -1166,7 +1173,8 @@ class ScyllaClusterManager:
         data = await request.json()
         replace_cfg = ReplaceConfig(**data["replace_cfg"]) if "replace_cfg" in data else None
         s_info = await self.cluster.add_server(replace_cfg, data.get('cmdline'), data.get('config'),
-                                               data.get('property_file'), data.get('start', True))
+                                               data.get('property_file'), data.get('start', True),
+                                               data.get('expected_error', None))
         return {"server_id" : s_info.server_id, "ip_addr": s_info.ip_addr}
 
     async def _cluster_remove_node(self, request: aiohttp.web.Request) -> None:
