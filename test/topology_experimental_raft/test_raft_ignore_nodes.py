@@ -28,8 +28,8 @@ async def test_raft_replace_ignore_nodes(manager: ManagerClient) -> None:
     s1_id = await manager.get_host_id(servers[1].server_id)
     s2_id = await manager.get_host_id(servers[2].server_id)
     logger.info(f"Stopping servers {servers[:3]}")
-    await manager.server_stop(servers[0].server_id)
-    await manager.server_stop(servers[1].server_id)
+    await manager.server_stop_gracefully(servers[0].server_id)
+    await manager.server_stop_gracefully(servers[1].server_id)
     await manager.server_stop_gracefully(servers[2].server_id)
 
     ignore_dead: list[IPAddress | HostID] = [s1_id, servers[2].ip_addr]
