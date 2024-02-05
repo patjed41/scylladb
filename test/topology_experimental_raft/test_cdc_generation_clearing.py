@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-from test.pylib.rest_client import inject_error_one_shot
+from test.pylib.rest_client import inject_error
 from test.pylib.manager_client import ManagerClient
 from test.pylib.util import wait_for, wait_for_cql_and_get_hosts
 
@@ -89,12 +89,28 @@ async def test_dependency_on_timestamps(manager: ManagerClient):
     assert len(gen_ids) == 2 and first_gen_id in gen_ids
 
     # We enable this injection to stop timestamps from preventing the clearing of CDC generations.
-    await inject_error_one_shot(manager.api, servers[0].ip_addr, "clean_obsolete_cdc_generations_ignore_ts")
+    async with inject_error(manager.api, servers[0].ip_addr, "clean_obsolete_cdc_generations_ignore_ts"):
+        logger.info("Bootstrapping third node")
+        servers += [await manager.server_add()]
 
-    logger.info("Bootstrapping third node")
-    servers += [await manager.server_add()]
+        # The first generation should be removed thanks to the above injection.
+        mark, gen_ids = await wait_for(tried_to_remove_new_gen, time.time() + 60)
+        logger.info(f"Generations after third clearing attempt: {gen_ids}")
+        assert len(gen_ids) == 2 and first_gen_id not in gen_ids
 
-    # The first generation should be removed thanks to the above injection.
-    mark, gen_ids = await wait_for(tried_to_remove_new_gen, time.time() + 60)
-    logger.info(f"Generations after third clearing attempt: {gen_ids}")
-    assert len(gen_ids) == 2 and first_gen_id not in gen_ids
+        logger.info("Bootstrapping fourth node")
+        servers += [await manager.server_add()]
+
+        # The fourth generation have become the new clean-up candidate after removing the first generation.
+        mark, gen_ids = await wait_for(tried_to_remove_new_gen, time.time() + 60)
+        logger.info(f"Generations after fourth clearing attempt: {gen_ids}")
+        assert len(gen_ids) == 3
+        gen_ids_before_last_node = gen_ids
+
+        logger.info("Bootstrapping fifth node")
+        servers += [await manager.server_add()]
+
+        # The fourth generation should be removed together with all preceding generations.
+        mark, gen_ids = await wait_for(tried_to_remove_new_gen, time.time() + 60)
+        logger.info(f"Generations after fifth clearing attempt: {gen_ids}")
+        assert len(gen_ids) == 1 and next(iter(gen_ids)) not in gen_ids_before_last_node
