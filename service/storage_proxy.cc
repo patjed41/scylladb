@@ -493,6 +493,8 @@ private:
         ++p->get_stats().received_mutations;
         p->get_stats().forwarded_mutations += forward.size();
 
+        int c = 0;
+
         if (auto stale = _sp.apply_fence(fence, src_addr.addr)) {
             errors.count += (forward.size() + 1);
             errors.local = std::move(*stale);
@@ -500,32 +502,36 @@ private:
             co_await coroutine::all(
                 [&] () -> future<> {
                     try {
+                        c = 1;
                         auto op = _sp.start_write();
+                        c = 2;
                         // FIXME: get_schema_for_write() doesn't timeout
                         schema_ptr s = co_await get_schema_for_write(schema_version, netw::messaging_service::msg_addr{reply_to, shard}, timeout);
                         // Note: blocks due to execution_stage in replica::database::apply()
+                        c = 3;
                         co_await apply_fn(p, trace_state_ptr, std::move(s), m, timeout, fence);
                         // We wait for send_mutation_done to complete, otherwise, if reply_to is busy, we will accumulate
                         // lots of unsent responses, which can OOM our shard.
                         //
                         // Usually we will return immediately, since this work only involves appending data to the connection
                         // send buffer.
+                        c = 4;
                         auto f = co_await coroutine::as_future(send_mutation_done(netw::messaging_service::msg_addr{reply_to, shard}, trace_state_ptr,
                                 shard, response_id, p->get_view_update_backlog()));
+                        c = 5;
                         f.ignore_ready_future();
                     } catch (...) {
                         std::exception_ptr eptr = std::current_exception();
                         errors.count++;
                         errors.local = replica::try_encode_replica_exception(eptr);
                         seastar::log_level l = seastar::log_level::warn;
-                        if (is_timeout_exception(eptr)
-                                || std::holds_alternative<replica::rate_limit_exception>(errors.local.reason)
+                        if (std::holds_alternative<replica::rate_limit_exception>(errors.local.reason)
                                 || std::holds_alternative<abort_requested_exception>(errors.local.reason)) {
                             // ignore timeouts, abort requests and rate limit exceptions so that logs are not flooded.
                             // database's total_writes_timedout or total_writes_rate_limited counter was incremented.
                             l = seastar::log_level::debug;
                         }
-                        slogger.log(l, "Failed to apply mutation from {}#{}: {}", reply_to, shard, eptr);
+                        slogger.log(l, "Failed to apply mutation from {}#{}: {}, c: {}", reply_to, shard, eptr, c);
                     }
                 },
                 [&] {
@@ -1306,6 +1312,7 @@ protected:
     db::write_type _type;
     std::unique_ptr<mutation_holder> _mutation_holder;
     inet_address_vector_replica_set _targets; // who we sent this mutation to
+    inet_address_vector_replica_set _all_targets;
     // added dead_endpoints as a member here as well. This to be able to carry the info across
     // calls in helper methods in a convenient way. Since we hope this will be empty most of the time
     // it should not be a huge burden. (flw)
@@ -1342,7 +1349,7 @@ public:
             inet_address_vector_topology_change dead_endpoints = {}, is_cancellable cancellable = is_cancellable::no)
             : _id(p->get_next_response_id()), _proxy(std::move(p))
             , _effective_replication_map_ptr(std::move(erm))
-            , _trace_state(trace_state), _cl(cl), _type(type), _mutation_holder(std::move(mh)), _targets(std::move(targets)),
+            , _trace_state(trace_state), _cl(cl), _type(type), _mutation_holder(std::move(mh)), _targets(targets), _all_targets(std::move(targets)),
               _dead_endpoints(std::move(dead_endpoints)), _stats(stats), _expire_timer([this] { timeout_cb(); }), _permit(std::move(permit)),
               _rate_limit_info(rate_limit_info) {
         // original comment from cassandra:
@@ -1359,6 +1366,7 @@ public:
         --_stats.writes;
         if (_cl_achieved) {
             if (_throttled) {
+                slogger.info("THROTTLED IN DESTRUCTOR");
                 _ready.set_value(bo::success());
             } else {
                 _stats.background_writes--;
@@ -1367,14 +1375,17 @@ public:
             }
         } else {
             if (_error == error::TIMEOUT) {
+                slogger.info("TIMEOUT");
                 _ready.set_value(mutation_write_timeout_exception(get_schema()->ks_name(), get_schema()->cf_name(), _cl, _cl_acks, _total_block_for, _type));
             } else if (_error == error::FAILURE) {
+                slogger.info("FAILURE");
                 if (!_message) {
                     _ready.set_exception(mutation_write_failure_exception(get_schema()->ks_name(), get_schema()->cf_name(), _cl, _cl_acks, _failed, _total_block_for, _type));
                 } else {
                     _ready.set_exception(mutation_write_failure_exception(*_message, _cl, _cl_acks, _failed, _total_block_for, _type));
                 }
             } else if (_error == error::RATE_LIMIT) {
+                slogger.info("RATE LIMIT");
                 _ready.set_value(exceptions::rate_limit_exception(get_schema()->ks_name(), get_schema()->cf_name(), db::operation_type::write, false));
             }
             if (_cdc_operation_result_tracker) {
@@ -1433,9 +1444,8 @@ public:
     }
 
     void on_timeout() {
-        if (_cl_achieved) {
-            slogger.trace("Write is not acknowledged by {} replicas after achieving CL", get_targets());
-        }
+        slogger.info("Write is not acknowledged by {} replicas after achieving CL, all replicas: {}, total_block_for: {}, CL: {}, id: {}",
+                get_targets(), _all_targets, _total_block_for, _cl, _id);
         _error = error::TIMEOUT;
         // We don't delay request completion after a timeout, but its possible we are currently delaying.
     }
@@ -1542,7 +1552,7 @@ public:
             on_resume(this);
         } else {
             ++stats().throttled_base_writes;
-            tracing::trace(trace, "Delaying user write due to view update backlog {}/{} by {}us",
+            slogger.info("Delaying user write due to view update backlog {}/{} by {}us",
                           backlog.current, backlog.max, delay.count());
             // Waited on indirectly.
             (void)sleep_abortable<seastar::steady_clock_type>(delay).finally([self = shared_from_this(), on_resume = std::forward<Func>(on_resume)] {
@@ -2352,7 +2362,11 @@ query::tombstone_limit storage_proxy::get_tombstone_limit() const {
 }
 
 bool storage_proxy::need_throttle_writes() const {
-    return get_global_stats().background_write_bytes > _background_write_throttle_threahsold || get_global_stats().queued_write_bytes > 6*1024*1024;
+    bool res = get_global_stats().background_write_bytes > _background_write_throttle_threahsold || get_global_stats().queued_write_bytes > 6*1024*1024;
+    if (res) {
+        slogger.warn("NEED_THROTTLE_WRITES");
+    }
+    return res;
 }
 
 void storage_proxy::unthrottle() {

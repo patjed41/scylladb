@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 @pytest.mark.asyncio
 async def test_topology_ops(request, manager: ManagerClient):
     """Test basic topology operations using the topology coordinator."""
+    cfg = {'experimental_features': ['consistent-topology-changes']}
+
     logger.info("Bootstrapping first node")
-    servers = [await manager.server_add()]
+    servers = [await manager.server_add(config=cfg)]
 
     logger.info(f"Restarting node {servers[0]}")
     await manager.server_stop_gracefully(servers[0].server_id)
@@ -32,12 +34,11 @@ async def test_topology_ops(request, manager: ManagerClient):
 
     await wait_for_cql_and_get_hosts(manager.cql, await manager.running_servers(), time.time() + 60)
     cql = await reconnect_driver(manager)
-    # FIXME: disabled as a workaround for #15935, #15924
-    # We need to re-enable once these issues are fixed.
-    #finish_writes = await start_writes(cql)
+
+    finish_writes = await start_writes(cql)
 
     logger.info("Bootstrapping other nodes")
-    servers += await manager.servers_add(3)
+    servers += await manager.servers_add(3, config=cfg)
 
     logger.info(f"Decommissioning node {servers[0]}")
     await manager.decommission_node(servers[0].server_id)
@@ -49,7 +50,7 @@ async def test_topology_ops(request, manager: ManagerClient):
     await manager.server_start(servers[0].server_id)
 
     logger.info(f"Stopping node {servers[0]}")
-    await manager.server_stop_gracefully(servers[0].server_id)
+    await manager.server_stop(servers[0].server_id)
     await check_node_log_for_failed_mutations(manager, servers[0])
 
     logger.info(f"Replacing node {servers[0]}")
@@ -67,7 +68,7 @@ async def test_topology_ops(request, manager: ManagerClient):
     servers = servers[1:]
 
     logger.info("Checking results of the background writes")
-    #await finish_writes()
+    await finish_writes()
 
     for server in servers:
         await check_node_log_for_failed_mutations(manager, server)
