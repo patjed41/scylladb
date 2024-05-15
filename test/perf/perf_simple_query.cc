@@ -561,6 +561,7 @@ int scylla_simple_query_main(int argc, char** argv) {
             const auto enable_cache = app.configuration()["enable-cache"].as<bool>();
             std::cout << "enable-cache=" << enable_cache << '\n';
             db_cfg->enable_cache(enable_cache);
+             db_cfg->force_gossip_topology_changes(true);
             cql_test_config cfg(db_cfg);
             if (app.configuration().contains("tablets")) {
                 cfg.db_config->experimental_features({db::experimental_features_t::feature::TABLETS},

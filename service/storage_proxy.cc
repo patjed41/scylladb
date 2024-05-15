@@ -3082,6 +3082,12 @@ future<T> storage_proxy::apply_fence(future<T> future, fencing_token fence, gms:
     });
 }
 
+template <typename T>
+future<T> storage_proxy::apply_fence2(T future, fencing_token fence, gms::inet_address caller_address) const {
+    auto stale = apply_fence(fence, caller_address);
+    return stale ? make_exception_future<T>(std::move(*stale)) : make_ready_future<T>(std::move(future));
+}
+
 fencing_token storage_proxy::get_fence(const locator::effective_replication_map& erm) {
     // Writes to and reads from local tables don't have to be fenced. Moreover, they shouldn't, as they
     // can cause errors on the bootstrapping node. A specific scenario:
@@ -4968,11 +4974,12 @@ protected:
         auto fence = storage_proxy::get_fence(*_effective_replication_map_ptr);
         if (_proxy->is_me(ep)) {
             tracing::trace(_trace_state, "read_mutation_data: querying locally");
-            return _proxy->apply_fence(_proxy->query_mutations_locally(_schema, cmd, _partition_range, timeout, _trace_state), fence, _proxy->my_address());
+            //return _proxy->apply_fence(_proxy->query_mutations_locally(_schema, cmd, _partition_range, timeout, _trace_state), fence, _proxy->my_address());
+            auto q = co_await _proxy->query_mutations_locally(_schema, cmd, _partition_range, timeout, _trace_state);
+            co_return co_await _proxy->apply_fence2(std::move(q), fence, _proxy->my_address());
         } else {
-            return _proxy->remote().send_read_mutation_data(netw::messaging_service::msg_addr{ep, 0}, timeout,
-                _trace_state, *cmd, _partition_range,
-                fence);
+            co_return co_await _proxy->remote().send_read_mutation_data(netw::messaging_service::msg_addr{ep, 0}, timeout, _trace_state, *cmd, _partition_range, fence);
+            //return _proxy->remote().send_read_mutation_data(netw::messaging_service::msg_addr{ep, 0}, timeout, _trace_state, *cmd, _partition_range, fence);
         }
     }
     future<rpc::tuple<foreign_ptr<lw_shared_ptr<query::result>>, cache_temperature>> make_data_request(gms::inet_address ep, clock_type::time_point timeout, bool want_digest) {
@@ -4983,11 +4990,16 @@ protected:
         auto fence = storage_proxy::get_fence(*_effective_replication_map_ptr);
         if (_proxy->is_me(ep)) {
             tracing::trace(_trace_state, "read_data: querying locally");
-            return _proxy->apply_fence(_proxy->query_result_local(_effective_replication_map_ptr, _schema, _cmd, _partition_range, opts, _trace_state, timeout, adjust_rate_limit_for_local_operation(_rate_limit_info)), fence, _proxy->my_address());
+            auto q = co_await _proxy->query_result_local(_effective_replication_map_ptr, _schema, _cmd, _partition_range, opts, _trace_state, timeout, adjust_rate_limit_for_local_operation(_rate_limit_info));
+            if (!fence) {
+                co_return q;
+            }
+            co_return co_await _proxy->apply_fence2(std::move(q), fence, _proxy->my_address());
+            //return _proxy->apply_fence(_proxy->query_result_local(_effective_replication_map_ptr, _schema, _cmd, _partition_range, opts, _trace_state, timeout, adjust_rate_limit_for_local_operation(_rate_limit_info)), fence, _proxy->my_address());
+            //return _proxy->query_result_local(_effective_replication_map_ptr, _schema, _cmd, _partition_range, opts, _trace_state, timeout, adjust_rate_limit_for_local_operation(_rate_limit_info));
         } else {
-            return _proxy->remote().send_read_data(netw::messaging_service::msg_addr{ep, 0}, timeout,
-                _trace_state, *_cmd, _partition_range, opts.digest_algo, _rate_limit_info,
-                fence);
+            co_return co_await _proxy->remote().send_read_data(netw::messaging_service::msg_addr{ep, 0}, timeout, _trace_state, *_cmd, _partition_range, opts.digest_algo, _rate_limit_info, fence);
+            //return _proxy->remote().send_read_data(netw::messaging_service::msg_addr{ep, 0}, timeout, _trace_state, *_cmd, _partition_range, opts.digest_algo, _rate_limit_info, fence);
         }
     }
     future<rpc::tuple<query::result_digest, api::timestamp_type, cache_temperature, std::optional<full_position>>> make_digest_request(gms::inet_address ep, clock_type::time_point timeout) {

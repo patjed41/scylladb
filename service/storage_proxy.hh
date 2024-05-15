@@ -535,6 +535,7 @@ private:
     future<T> apply_fence(future<T> future, fencing_token fence, gms::inet_address caller_address) const;
     // Returns fencing_token based on effective_replication_map.
     static fencing_token get_fence(const locator::effective_replication_map& erm);
+    template <typename T> future<T> apply_fence2(T future, fencing_token fence, gms::inet_address caller_address) const;
 
     utils::phased_barrier::operation start_write() {
         return _pending_writes_phaser.start();
