@@ -1584,8 +1584,23 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                         assert(node.rs->ring.tokens.empty());
                         auto num_tokens = std::get<join_param>(node.req_param.value()).num_tokens;
                         auto tokens_string = std::get<join_param>(node.req_param.value()).tokens_string;
+
                         // A node have just been accepted and does not have tokens assigned yet
-                        // Need to assign random tokens to the node
+                        // We need to assign random tokens and prepare a new CDC generation
+                        // unless it is a zero-token node. If it is a zero-token node, we can
+                        // instantly move its state to normal.
+                        if (num_tokens == 0 && tokens_string.empty()) { // maybe checking bootstrap_tokens.empty() (computed below) is better
+                            auto guard = take_guard(std::move(node)); // maybe code is better if me use guard for both cases
+                            topology_mutation_builder builder(guard.write_timestamp());
+                            topology_request_tracking_mutation_builder rtbuilder(node.rs->request_id);
+                            builder.del_transition_state()
+                                   .with_node(node.id)
+                                   .set("node_state", node_state::normal);
+                            rtbuilder.done();
+                            auto reason = ::format("bootstrap: joined a zero-token node {}", node.id);
+                            co_await update_topology_state(std::move(guard), {builder.build(), rtbuilder.build()}, reason);
+                            break;
+                        }
                         auto tmptr = get_token_metadata_ptr();
                         std::unordered_set<token> bootstrap_tokens;
                         try {
@@ -1634,6 +1649,24 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
 
                         topology_mutation_builder builder(node.guard.write_timestamp());
 
+                        // If a zero-token node is replacing another zero-token node,
+                        // we can instantly move the new node's state to normal
+                        if (it->second.ring.tokens.empty()) {
+                            topology_request_tracking_mutation_builder rtbuilder(node.rs->request_id);
+                            builder.del_transition_state() // .set_version(_topo_sm._topology.version + 1)???
+                                   .with_node(node.id)
+                                   .set("node_state", node_state::normal);
+
+                            // Move old node to 'left'
+                            topology_mutation_builder builder2(node.guard.write_timestamp());
+                            cleanup_ignored_nodes_on_left(builder2, replaced_id);
+                            builder2.with_node(replaced_id)
+                                    .set("node_state", node_state::left);
+                            rtbuilder.done();
+                            co_await update_topology_state(take_guard(std::move(node)), {builder.build(), builder2.build(), rtbuilder.build()},
+                                    fmt::format("replace: replaced node {} with the new zero-token node {}", replaced_id, node.id));
+                            break;
+                        }
                         builder.set_transition_state(topology::transition_state::tablet_draining)
                                .set_version(_topo_sm._topology.version + 1)
                                .with_node(node.id)
@@ -2250,7 +2283,8 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
     validate_joining_node(const node_to_work_on& node) {
         if (*node.request == topology_request::replace) {
             auto replaced_id = std::get<replace_param>(node.req_param.value()).replaced_id;
-            if (!_topo_sm._topology.normal_nodes.contains(replaced_id)) {
+            auto replaced_it = _topo_sm._topology.normal_nodes.find(replaced_id);
+            if (replaced_it == _topo_sm._topology.normal_nodes.end()) {
                 return join_node_response_params::rejected {
                     .reason = ::format("Cannot replace node {} because it is not in the 'normal' state", replaced_id),
                 };

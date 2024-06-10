@@ -1265,6 +1265,10 @@ future<> storage_service::raft_initialize_discovery_leader(const join_node_reque
             throw std::runtime_error(::format("Cannot perform a replace operation because this is the first node in the cluster"));
         }
 
+        if (params.num_tokens == 0) {
+            throw std::runtime_error("Cannot start the first node in the cluster as zero-token");
+        }
+
         rtlogger.info("adding myself as the first node to the topology");
         auto guard = co_await _group0->client().start_operation(&_group0_as, raft_timeout{});
 
@@ -1571,14 +1575,19 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
 
     // If this is a restarting node, we should update tokens before gossip starts
     auto my_tokens = co_await _sys_ks.local().get_saved_tokens();
-    bool restarting_normal_node = _sys_ks.local().bootstrap_complete() && !is_replacing() && !my_tokens.empty();
+    if (!my_tokens.empty() && !_db.local().get_config().join_ring()) {
+        throw std::runtime_error("Cannot restart with join_ring=false because the node already owns tokens");
+    }
+    bool restarting_normal_node = _sys_ks.local().bootstrap_complete() && !is_replacing();
     if (restarting_normal_node) {
         slogger.info("Restarting a node in NORMAL status");
+        if (!my_tokens.empty()) {
         // This node must know about its chosen tokens before other nodes do
         // since they may start sending writes to this node after it gossips status = NORMAL.
         // Therefore we update _token_metadata now, before gossip starts.
         tmptr->update_topology(tmptr->get_my_id(), _snitch.local()->get_location(), locator::node::state::normal);
         co_await tmptr->update_normal_tokens(my_tokens, tmptr->get_my_id());
+        }
 
         cdc_gen_id = co_await _sys_ks.local().get_cdc_generation_id();
         if (!cdc_gen_id) {
@@ -1713,8 +1722,8 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
         .datacenter = _snitch.local()->get_datacenter(),
         .rack = _snitch.local()->get_rack(),
         .release_version = version::release(),
-        .num_tokens = _db.local().get_config().num_tokens(),
-        .tokens_string = _db.local().get_config().initial_token(),
+        .num_tokens = _db.local().get_config().join_ring() ? _db.local().get_config().num_tokens() : 0,
+        .tokens_string = _db.local().get_config().join_ring() ? _db.local().get_config().initial_token() : sstring(),
         .shard_count = smp::count,
         .ignore_msb =  _db.local().get_config().murmur3_partitioner_ignore_msb_bits(),
         .supported_features = boost::copy_range<std::vector<sstring>>(_feature_service.supported_feature_set()),
