@@ -387,7 +387,7 @@ static future<bool> flush_hints(repair_service& rs, repair_uniq_id id, replica::
 
     bool hints_batchlog_flushed = false;
     if (needs_flush_before_repair) {
-        auto waiting_nodes = db.get_token_metadata().get_normal_token_owners_ips();
+        auto waiting_nodes = db.get_token_metadata().get_topology().get_all_ips();
         std::erase_if(waiting_nodes, [&] (const auto& addr) {
             return ignore_nodes.contains(addr);
         });

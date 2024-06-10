@@ -442,8 +442,8 @@ future<> gossiper::handle_echo_msg(gms::inet_address from, const locator::host_i
             on_internal_error(logger, "UP notification should have a timeout and src host id");
         }
         auto normal = [] (gossiper& g, locator::host_id hid) {
-            auto tm = g.get_token_metadata_ptr();
-            return tm->is_normal_token_owner(hid);
+            const auto& topo = g.get_token_metadata_ptr()->get_topology();
+            return topo.has_node(hid) && topo.find_node(hid)->is_normal();
         };
         co_await container().invoke_on(0, [from, from_hid, timeout, &normal] (gossiper& g) -> future<> {
             try {
