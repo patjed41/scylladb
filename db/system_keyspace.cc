@@ -2935,19 +2935,15 @@ future<service::topology> system_keyspace::load_topology_state(const std::unorde
 
         service::node_state nstate = service::node_state_from_string(row.get_as<sstring>("node_state"));
 
-        std::optional<service::ring_slice> ring_slice;
+        service::ring_slice ring_slice;
         if (row.has("tokens")) {
-            auto tokens = decode_tokens(deserialize_set_column(*topology(), row, "tokens"));
+            ring_slice.tokens = decode_tokens(deserialize_set_column(*topology(), row, "tokens"));
 
-            if (tokens.empty()) {
+            if (ring_slice.tokens.empty()) {
                 on_fatal_internal_error(slogger, format(
                     "load_topology_state: node {} has tokens column present but tokens are empty",
                     host_id));
             }
-
-            ring_slice = service::ring_slice {
-                .tokens = std::move(tokens),
-            };
         } else if (must_have_tokens(nstate)) {
             on_fatal_internal_error(slogger, format(
                         "load_topology_state: node {} in {} state but missing ring slice", host_id, nstate));

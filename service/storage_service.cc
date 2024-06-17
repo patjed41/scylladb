@@ -459,15 +459,15 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
         auto ip = am.find(id);
 
         rtlogger.trace("loading topology: raft id={} ip={} node state={} dc={} rack={} tokens state={} tokens={} shards={}",
-                      id, ip, rs.state, rs.datacenter, rs.rack, _topology_state_machine._topology.tstate, rs.ring.value().tokens, rs.shard_count, rs.cleanup);
+                      id, ip, rs.state, rs.datacenter, rs.rack, _topology_state_machine._topology.tstate, rs.ring.tokens, rs.shard_count, rs.cleanup);
         // Save tokens, not needed for raft topology management, but needed by legacy
         // Also ip -> id mapping is needed for address map recreation on reboot
         if (is_me(host_id)) {
-            sys_ks_futures.push_back(_sys_ks.local().update_tokens(rs.ring.value().tokens));
+            sys_ks_futures.push_back(_sys_ks.local().update_tokens(rs.ring.tokens));
             co_await _gossiper.add_local_application_state(
-                std::pair(gms::application_state::TOKENS, gms::versioned_value::tokens(rs.ring.value().tokens)),
+                std::pair(gms::application_state::TOKENS, gms::versioned_value::tokens(rs.ring.tokens)),
                 std::pair(gms::application_state::CDC_GENERATION_ID, gms::versioned_value::cdc_generation_id(_topology_state_machine._topology.committed_cdc_generations.back())),
-                std::pair(gms::application_state::STATUS, gms::versioned_value::normal(rs.ring.value().tokens))
+                std::pair(gms::application_state::STATUS, gms::versioned_value::normal(rs.ring.tokens))
             );
         } else if (ip && !is_me(*ip)) {
             // In replace-with-same-ip scenario the replaced node IP will be the same
@@ -484,7 +484,7 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
             // for the node were not in the 'normal' state yet
             auto info = get_peer_info_for_update(*ip);
             // And then amend with the info from raft
-            info.tokens = rs.ring.value().tokens;
+            info.tokens = rs.ring.tokens;
             info.data_center = rs.datacenter;
             info.rack = rs.rack;
             info.release_version = rs.release_version;
@@ -504,7 +504,7 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
             }
         }
         update_topology(host_id, ip, rs);
-        co_await tmptr->update_normal_tokens(rs.ring.value().tokens, host_id);
+        co_await tmptr->update_normal_tokens(rs.ring.tokens, host_id);
     };
 
     auto process_transition_node = [&](raft::server_id id, const replica_state& rs) -> future<> {
@@ -512,14 +512,11 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
         auto ip = am.find(id);
 
         rtlogger.trace("loading topology: raft id={} ip={} node state={} dc={} rack={} tokens state={} tokens={}",
-                      id, ip, rs.state, rs.datacenter, rs.rack, _topology_state_machine._topology.tstate,
-                      seastar::value_of([&] () -> sstring {
-                          return rs.ring ? ::format("{}", rs.ring->tokens) : sstring("null");
-                      }));
+                      id, ip, rs.state, rs.datacenter, rs.rack, _topology_state_machine._topology.tstate, rs.ring.tokens);
 
         switch (rs.state) {
         case node_state::bootstrapping:
-            if (rs.ring.has_value()) {
+            if (!rs.ring.tokens.empty()) {
                 if (ip) {
                     if (!is_me(*ip)) {
                         utils::get_local_injector().inject("crash-before-bootstrapping-node-added", [] {
@@ -536,9 +533,9 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
                         // so we can perform writes to regular 'distributed' tables during the bootstrap procedure
                         // (such as the CDC generation write).
                         // It doesn't break anything to set the tokens to normal early in this single-node case.
-                        co_await tmptr->update_normal_tokens(rs.ring.value().tokens, host_id);
+                        co_await tmptr->update_normal_tokens(rs.ring.tokens, host_id);
                     } else {
-                        tmptr->add_bootstrap_tokens(rs.ring.value().tokens, host_id);
+                        tmptr->add_bootstrap_tokens(rs.ring.tokens, host_id);
                         co_await update_topology_change_info(tmptr, ::format("bootstrapping node {}/{}", id, ip));
                     }
                 } else if (_topology_state_machine._topology.tstate == topology::transition_state::write_both_read_new) {
@@ -559,7 +556,7 @@ future<storage_service::nodes_to_notify_after_sync> storage_service::sync_raft_t
                 break;
             }
             update_topology(host_id, ip, rs);
-            co_await tmptr->update_normal_tokens(rs.ring.value().tokens, host_id);
+            co_await tmptr->update_normal_tokens(rs.ring.tokens, host_id);
             tmptr->add_leaving_endpoint(host_id);
             co_await update_topology_change_info(tmptr, ::format("{} {}/{}", rs.state, id, ip));
             break;
@@ -5477,7 +5474,7 @@ future<raft_topology_cmd_result> storage_service::raft_topology_cmd_handler(raft
                 co_await with_scheduling_group(_db.local().get_streaming_scheduling_group(), coroutine::lambda([&] () -> future<> {
                     const auto& rs = _topology_state_machine._topology.find(raft_server.id())->second;
                     auto tstate = _topology_state_machine._topology.tstate;
-                    if (!rs.ring ||
+                    if (rs.ring.tokens.empty() ||
                         (tstate != topology::transition_state::write_both_read_old && rs.state != node_state::normal && rs.state != node_state::rebuilding)) {
                         rtlogger.warn("got stream_ranges request while my tokens state is {} and node state is {}", tstate, rs.state);
                         co_return;
@@ -5505,10 +5502,10 @@ future<raft_topology_cmd_result> storage_service::raft_topology_cmd_handler(raft
                                     if (is_repair_based_node_ops_enabled(streaming::stream_reason::bootstrap)) {
                                         co_await utils::get_local_injector().inject("delay_bootstrap_120s", std::chrono::seconds(120));
 
-                                        co_await _repair.local().bootstrap_with_repair(get_token_metadata_ptr(), rs.ring.value().tokens);
+                                        co_await _repair.local().bootstrap_with_repair(get_token_metadata_ptr(), rs.ring.tokens);
                                     } else {
                                         dht::boot_strapper bs(_db, _stream_manager, _abort_source, get_token_metadata_ptr()->get_my_id(),
-                                            locator::endpoint_dc_rack{rs.datacenter, rs.rack}, rs.ring.value().tokens, get_token_metadata_ptr());
+                                            locator::endpoint_dc_rack{rs.datacenter, rs.rack}, rs.ring.tokens, get_token_metadata_ptr());
                                         co_await bs.bootstrap(streaming::stream_reason::bootstrap, _gossiper, _topology_state_machine._topology.session);
                                     }
                                 }));
@@ -5531,10 +5528,10 @@ future<raft_topology_cmd_result> storage_service::raft_topology_cmd_handler(raft
                                         }
                                         ignored_ips.insert(*ip);
                                     }
-                                    co_await _repair.local().replace_with_repair(get_token_metadata_ptr(), rs.ring.value().tokens, std::move(ignored_ips));
+                                    co_await _repair.local().replace_with_repair(get_token_metadata_ptr(), rs.ring.tokens, std::move(ignored_ips));
                                 } else {
                                     dht::boot_strapper bs(_db, _stream_manager, _abort_source, get_token_metadata_ptr()->get_my_id(),
-                                                          locator::endpoint_dc_rack{rs.datacenter, rs.rack}, rs.ring.value().tokens, get_token_metadata_ptr());
+                                                          locator::endpoint_dc_rack{rs.datacenter, rs.rack}, rs.ring.tokens, get_token_metadata_ptr());
                                     auto replaced_id = std::get<replace_param>(_topology_state_machine._topology.req_param[raft_server.id()]).replaced_id;
                                     auto existing_ip = _group0->address_map().find(replaced_id);
                                     SCYLLA_ASSERT(existing_ip);

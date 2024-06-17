@@ -1585,7 +1585,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
 
                 switch (node.rs->state) {
                     case node_state::bootstrapping: {
-                        SCYLLA_ASSERT(!node.rs->ring);
+                        SCYLLA_ASSERT(node.rs->ring.tokens.empty());
                         auto num_tokens = std::get<join_param>(node.req_param.value()).num_tokens;
                         auto tokens_string = std::get<join_param>(node.req_param.value()).tokens_string;
                         // A node have just been accepted and does not have tokens assigned yet
@@ -1614,7 +1614,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                     }
                         break;
                     case node_state::replacing: {
-                        SCYLLA_ASSERT(!node.rs->ring);
+                        SCYLLA_ASSERT(node.rs->ring.tokens.empty());
                         // Make sure all nodes are no longer trying to write to a node being replaced. This is important if the new node have the same IP, so that old write will not
                         // go to the new node by mistake
                         try {
@@ -1634,14 +1634,14 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                         auto replaced_id = std::get<replace_param>(node.req_param.value()).replaced_id;
                         auto it = _topo_sm._topology.normal_nodes.find(replaced_id);
                         SCYLLA_ASSERT(it != _topo_sm._topology.normal_nodes.end());
-                        SCYLLA_ASSERT(it->second.ring && it->second.state == node_state::normal);
+                        SCYLLA_ASSERT(!it->second.ring.tokens.empty() && it->second.state == node_state::normal);
 
                         topology_mutation_builder builder(node.guard.write_timestamp());
 
                         builder.set_transition_state(topology::transition_state::tablet_draining)
                                .set_version(_topo_sm._topology.version + 1)
                                .with_node(node.id)
-                               .set("tokens", it->second.ring->tokens);
+                               .set("tokens", it->second.ring.tokens);
                         co_await update_topology_state(take_guard(std::move(node)), {builder.build()},
                                 "replace: transition to tablet_draining and take ownership of the replaced node's tokens");
                     }
@@ -2156,7 +2156,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                 rtbuilder.set("start_time", db_clock::now());
                 switch (node.request.value()) {
                     case topology_request::join: {
-                        SCYLLA_ASSERT(!node.rs->ring);
+                        SCYLLA_ASSERT(node.rs->ring.tokens.empty());
                         // Write chosen tokens through raft.
                         builder.set_transition_state(topology::transition_state::join_group0)
                                .with_node(node.id)
@@ -2167,7 +2167,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                         break;
                         }
                     case topology_request::leave:
-                        SCYLLA_ASSERT(node.rs->ring);
+                        SCYLLA_ASSERT(!node.rs->ring.tokens.empty());
                         // start decommission and put tokens of decommissioning nodes into write_both_read_old state
                         // meaning that reads will go to the replica being decommissioned
                         // but writes will go to new owner as well
@@ -2180,7 +2180,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                                                        "start decommission");
                         break;
                     case topology_request::remove: {
-                        SCYLLA_ASSERT(node.rs->ring);
+                        SCYLLA_ASSERT(!node.rs->ring.tokens.empty());
 
                         builder.set_transition_state(topology::transition_state::tablet_draining)
                                .set_version(_topo_sm._topology.version + 1)
@@ -2192,7 +2192,7 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                         break;
                         }
                     case topology_request::replace: {
-                        SCYLLA_ASSERT(!node.rs->ring);
+                        SCYLLA_ASSERT(!node.rs->ring.tokens.empty());
 
                         builder.set_transition_state(topology::transition_state::join_group0)
                                .with_node(node.id)
