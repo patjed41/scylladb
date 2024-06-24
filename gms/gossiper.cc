@@ -797,7 +797,8 @@ future<> gossiper::do_status_check() {
             if (!host_id) {
                 on_internal_error_noexcept(logger, format("Endpoint {} is dead and expired, but unexpecteduly, it has no HOST_ID in endpoint state", endpoint));
             }
-            if (!host_id || !get_token_metadata_ptr()->is_normal_token_owner(host_id)) {
+            const auto* node = get_token_metadata_ptr()->get_topology().find_node(host_id);
+            if (!host_id || !node || node->left() || node->is_joining()) {
                 logger.debug("time is expiring for endpoint : {} ({})", endpoint, expire_time.time_since_epoch().count());
                 co_await evict_from_membership(endpoint, pid);
             }
@@ -1235,6 +1236,17 @@ std::set<inet_address> gossiper::get_unreachable_token_owners() const {
     return token_owners;
 }
 
+std::set<inet_address> gossiper::get_unreachable_nodes() const {
+    std::set<inet_address> unreachable_nodes;
+    auto nodes = get_token_metadata_ptr()->get_topology().get_all_ips();
+    for (auto& node: nodes) {
+        if (!is_alive(node)) {
+            unreachable_nodes.insert(node);
+        }
+    }
+    return unreachable_nodes;
+}
+
 // Return downtime in microseconds
 int64_t gossiper::get_endpoint_downtime(inet_address ep) const noexcept {
     auto it = _unreachable_endpoints.find(ep);
@@ -1476,7 +1488,8 @@ bool gossiper::is_gossip_only_member(inet_address endpoint) const {
         return false;
     }
     const auto host_id = get_host_id(endpoint);
-    return !is_dead_state(*es) && !get_token_metadata_ptr()->is_normal_token_owner(host_id);
+    const auto* node = get_token_metadata_ptr()->get_topology().find_node(host_id);
+    return !is_dead_state(*es) && (!node || node->left() || node->is_joining());
 }
 
 clk::time_point gossiper::get_expire_time_for_endpoint(inet_address endpoint) const noexcept {

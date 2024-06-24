@@ -301,8 +301,6 @@ bool storage_service::should_bootstrap() {
  */
 static future<> set_gossip_tokens(gms::gossiper& g,
         const std::unordered_set<dht::token>& tokens, std::optional<cdc::generation_id> cdc_gen_id) {
-    assert(!tokens.empty());
-
     // Order is important: both the CDC streams timestamp and tokens must be known when a node handles our status.
     return g.add_local_application_state(
         std::pair(gms::application_state::TOKENS, gms::versioned_value::tokens(tokens)),
@@ -1428,7 +1426,7 @@ future<> storage_service::start_upgrade_to_raft_topology() {
                 "all nodes in the cluster are upgraded to the same version. Refusing to continue.");
     }
 
-    if (auto unreachable = _gossiper.get_unreachable_token_owners(); !unreachable.empty()) {
+    if (auto unreachable = _gossiper.get_unreachable_nodes(); !unreachable.empty()) {
         throw std::runtime_error(fmt::format(
             "Nodes {} are seen as down. All nodes must be alive in order to start the upgrade. "
             "Refusing to continue.",
@@ -2481,10 +2479,6 @@ future<> storage_service::handle_state_normal(inet_address endpoint, gms::permit
             on_fatal_internal_error(slogger, ::format("endpoint={} is marked for removal but still owns {} tokens", endpoint, owned_tokens.size()));
         }
     } else {
-        if (owned_tokens.empty()) {
-            on_internal_error(slogger, ::format("endpoint={} is not marked for removal but owns no tokens", endpoint));
-        }
-
         if (!is_normal_token_owner) {
             do_notify_joined = true;
         }
@@ -2909,8 +2903,6 @@ future<> storage_service::join_cluster(sharded<db::system_distributed_keyspace>&
                 // entry has been mistakenly added, delete it
                 slogger.warn("Loaded saved endpoint={}/{} has my broadcast address.  Deleting it", host_id, st.endpoint);
                 co_await _sys_ks.local().remove_endpoint(st.endpoint);
-            } else if (st.tokens.empty()) {
-                slogger.debug("Not loading saved endpoint={}/{} since it owns no tokens", host_id, st.endpoint);
             } else {
                 if (host_id == my_host_id()) {
                     on_internal_error(slogger, format("Loaded saved endpoint {} with my host_id={}", st.endpoint, host_id));
@@ -4117,8 +4109,10 @@ future<> storage_service::removenode(locator::host_id host_id, std::list<locator
                     ctl.prepare(node_ops_cmd::removenode_prepare).get();
 
                     // Step 5: Start to sync data
-                    ctl.send_to_all(node_ops_cmd::removenode_sync_data).get();
-                    on_streaming_finished();
+                    if (!tokens.empty()) {
+                        ctl.send_to_all(node_ops_cmd::removenode_sync_data).get();
+                        on_streaming_finished();
+                    }
 
                     // Step 6: Finish token movement
                     ctl.done(node_ops_cmd::removenode_done).get();

@@ -1949,13 +1949,6 @@ future<std::vector<gms::inet_address>> system_keyspace::load_peers() {
 
     std::vector<gms::inet_address> ret;
     for (const auto& row: *res) {
-        if (!row.has("tokens")) {
-            // Ignore rows that don't have tokens. Such rows may
-            // be introduced by code that persists parts of peer
-            // information (such as RAFT_ID) which may potentially
-            // race with deleting a peer (during node removal).
-            continue;
-        }
         ret.emplace_back(gms::inet_address(row.get_as<net::inet_address>("peer")));
     }
     co_return ret;
