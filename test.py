@@ -945,7 +945,7 @@ class PythonTest(Test):
             "-s",  # don't capture print() output inside pytest
             "--log-level=DEBUG",   # Capture logs
             "-o",
-            "junit_family=xunit2",
+            "junit_family=xunit1",
             "-o",
             "junit_suite_name={}".format(self.suite.name),
             "--junit-xml={}".format(self.xmlout),
@@ -1078,7 +1078,7 @@ class ToolTest(Test):
             "-s",  # don't capture print() output inside pytest
             "--log-level=DEBUG",   # Capture logs
             "-o",
-            "junit_family=xunit2",
+            "junit_family=xunit1",
             "--junit-xml={}".format(self.xmlout),
             "--mode={}".format(self.mode),
             "--run_id={}".format(self.id)

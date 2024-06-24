@@ -918,11 +918,15 @@ class ScyllaCluster:
                 await self.host_registry.release_host(Host(ip_addr))
             raise
         finally:
-            if start and not expected_error:
-                self.running[server.server_id] = server
+            if expected_error is None:
+                if start:
+                    self.running[server.server_id] = server
+                else:
+                    self.stopped[server.server_id] = server
+                self.logger.info("Cluster %s added %s", self, server)
             else:
-                self.stopped[server.server_id] = server
-        self.logger.info("Cluster %s added %s", self, server)
+                self.initial_seed = None
+
         return ServerInfo(server.server_id, server.ip_addr, server.rpc_address)
 
     async def add_servers(self, servers_num: int = 1,

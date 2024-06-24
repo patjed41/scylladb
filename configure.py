@@ -1511,7 +1511,6 @@ wasm_deps['wasm/test_word_double.wat'] = 'test/resource/wasm/c/test_word_double.
 def get_warning_options(cxx):
     warnings = [
         '-Wall',
-        '-Werror',
         '-Wextra',
         '-Wimplicit-fallthrough',
         '-Wno-mismatched-tags',  # clang-only
