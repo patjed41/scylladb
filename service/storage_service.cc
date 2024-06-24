@@ -1566,6 +1566,12 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
             co_await _gossiper.add_saved_endpoint(host_id, st, gms::null_permit_id);
         }
     }
+
+    if (locator::dc_is_arbiter(_snitch.local()->get_datacenter()) && _db.local().get_config().join_ring()) { // where to put this check?
+        throw std::runtime_error(fmt::format("Cannot start with join_ring=true because the node belongs to the arbiter DC {}",
+                _snitch.local()->get_datacenter()));
+    }
+
     auto features = _feature_service.supported_feature_set();
     slogger.info("Save advertised features list in the 'system.{}' table", db::system_keyspace::LOCAL);
     // Save the advertised feature set to system.local table after
