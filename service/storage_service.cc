@@ -288,8 +288,6 @@ bool storage_service::should_bootstrap() {
  */
 static future<> set_gossip_tokens(gms::gossiper& g,
         const std::unordered_set<dht::token>& tokens, std::optional<cdc::generation_id> cdc_gen_id) {
-    assert(!tokens.empty());
-
     // Order is important: both the CDC streams timestamp and tokens must be known when a node handles our status.
     return g.add_local_application_state({
         { gms::application_state::TOKENS, gms::versioned_value::tokens(tokens) },
@@ -1671,6 +1669,9 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
     auto advertise = gms::advertise_myself(!replacing_a_node_with_same_ip);
     co_await _gossiper.start_gossiping(new_generation, app_states, advertise);
 
+    if (!raft_topology_change_enabled() && is_first_node() && !_db.local().get_config().join_ring()) {
+        throw std::runtime_error("Cannot start the first node in the cluster as zero-token");
+    }
     if (!raft_topology_change_enabled() && should_bootstrap()) {
         // Wait for NORMAL state handlers to finish for existing nodes now, so that connection dropping
         // (happening at the end of `handle_state_normal`: `notify_joined`) doesn't interrupt
@@ -2439,10 +2440,6 @@ future<> storage_service::handle_state_normal(inet_address endpoint, gms::permit
             on_fatal_internal_error(slogger, ::format("endpoint={} is marked for removal but still owns {} tokens", endpoint, owned_tokens.size()));
         }
     } else {
-        if (owned_tokens.empty()) {
-            on_internal_error(slogger, ::format("endpoint={} is not marked for removal but owns no tokens", endpoint));
-        }
-
         if (!is_normal_token_owner) {
             do_notify_joined = true;
         }
@@ -3248,9 +3245,6 @@ storage_service::prepare_replacement_info(std::unordered_set<gms::inet_address> 
     std::unordered_set<dht::token> tokens;
     if (!raft_topology_change_enabled()) {
         tokens = state->get_tokens();
-        if (tokens.empty()) {
-            throw std::runtime_error(::format("Could not find tokens for {} to replace", replace_address));
-        }
     }
 
     auto dc_rack = get_dc_rack_for(replace_address).value_or(locator::endpoint_dc_rack::default_location);
