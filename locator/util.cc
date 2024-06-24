@@ -147,4 +147,12 @@ describe_ring(const replica::database& db, const gms::gossiper& gossiper, const 
     co_return ranges;
 }
 
+bool dc_is_arbiter(sstring_view datacenter) {
+    static const sstring suffix = "__arbiter__";
+    if (suffix.length() > datacenter.length()) {
+        return false;
+    }
+    return std::equal(suffix.cbegin(), suffix.cend(), datacenter.cend() - suffix.length());
+}
+
 }
