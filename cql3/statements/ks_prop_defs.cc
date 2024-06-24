@@ -13,6 +13,7 @@
 #include "data_dictionary/keyspace_metadata.hh"
 #include "locator/token_metadata.hh"
 #include "locator/abstract_replication_strategy.hh"
+#include "locator/util.hh"
 #include "exceptions/exceptions.hh"
 #include "gms/feature_service.hh"
 
@@ -64,7 +65,7 @@ static std::map<sstring, sstring> prepare_options(
         }
 
         for (const auto& dc : tm.get_topology().get_datacenters()) {
-            options.emplace(dc, *rf);
+            options.emplace(dc, locator::dc_is_arbiter(dc) ? "0" : *rf);
         }
     }
 
