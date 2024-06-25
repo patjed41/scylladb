@@ -1831,6 +1831,35 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                         co_await _group0.make_nonvoter(replaced_node_id, _as);
                     }
                 }
+
+                if (node.rs->ring.tokens.empty()) {
+                    std::vector<canonical_mutation> muts;
+                    muts.reserve(2);
+                    node_state next_state;
+                    topology_mutation_builder builder(node.guard.write_timestamp());
+                    sstring reason;
+                    if (node.rs->state == node_state::decommissioning) {
+                        next_state = node.rs->state;
+                        builder.set_transition_state(topology::transition_state::left_token_ring);
+                        reason = ::format("decommissioning zero-token node {}, moved to the left_token_ring transition state", node.id);
+                    } else {
+                        next_state = node_state::left;
+                        builder.del_transition_state();
+                        cleanup_ignored_nodes_on_left(builder, node.id);
+                        topology_request_tracking_mutation_builder rtbuilder(node.rs->request_id);
+                        rtbuilder.done();
+                        muts.push_back(rtbuilder.build());
+                        reason = ::format("removed zero-token node {}", node.id);
+                    }
+                    builder.del_session()
+                           .set_version(_topo_sm._topology.version + 1)
+                           .with_node(node.id)
+                           .set("node_state", next_state);
+                    muts.emplace_back(builder.build());
+                    co_await update_topology_state(take_guard(std::move(node)), std::move(muts), reason);
+                    break;
+                }
+
                 utils::get_local_injector().inject("crash_coordinator_before_stream", [] { abort(); });
                 raft_topology_cmd cmd{raft_topology_cmd::command::stream_ranges};
                 auto state = node.rs->state;
