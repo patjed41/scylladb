@@ -4579,6 +4579,11 @@ future<> storage_service::raft_rebuild(sstring source_dc) {
             throw std::runtime_error(::format("local node is not in the normal state (current state: {})", rs.state));
         }
 
+        if (rs.ring.tokens.empty()) {
+            rtlogger.warn("local node does not own any tokens, skipping redundant rebuild"); // runtime_error instead?
+            co_return;
+        }
+
         if (_topology_state_machine._topology.normal_nodes.size() == 1) {
             throw std::runtime_error("Cannot rebuild a single node");
         }
