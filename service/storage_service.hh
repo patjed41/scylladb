@@ -394,7 +394,7 @@ private:
     bool should_bootstrap();
     bool is_replacing();
     bool is_first_node();
-    future<> join_token_ring(sharded<db::system_distributed_keyspace>& sys_dist_ks,
+    future<> join_topology(sharded<db::system_distributed_keyspace>& sys_dist_ks,
             sharded<service::storage_proxy>& proxy,
             sharded<gms::gossiper>& gossiper,
             std::unordered_set<gms::inet_address> initial_contact_nodes,
