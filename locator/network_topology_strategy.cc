@@ -349,9 +349,8 @@ future<tablet_map> network_topology_strategy::reallocate_tablets(schema_ptr s, t
 
     tablet_logger.debug("Allocating tablets for {}.{} ({}): dc_rep_factor={} tablet_count={}", s->ks_name(), s->cf_name(), s->id(), _dc_rep_factor, tablets.tablet_count());
 
-    const auto& topo = tm->get_topology();
     for (tablet_id tb : tablets.tablet_ids()) {
-        auto replicas = co_await reallocate_tablets(s, topo, load, tablets, tb);
+        auto replicas = co_await reallocate_tablets(s, tm, load, tablets, tb);
         tablets.set_tablet(tb, tablet_info{std::move(replicas)});
     }
 
@@ -359,12 +358,14 @@ future<tablet_map> network_topology_strategy::reallocate_tablets(schema_ptr s, t
     co_return tablets;
 }
 
-future<tablet_replica_set> network_topology_strategy::reallocate_tablets(schema_ptr s, const locator::topology& topo, load_sketch& load, const tablet_map& cur_tablets, tablet_id tb) const {
+future<tablet_replica_set> network_topology_strategy::reallocate_tablets(schema_ptr s, token_metadata_ptr tm, load_sketch& load, const tablet_map& cur_tablets, tablet_id tb) const {
     tablet_replica_set replicas;
     // Current number of replicas per dc
     std::unordered_map<sstring, size_t> nodes_per_dc;
     // Current replicas per dc/rack
     std::unordered_map<sstring, std::map<sstring, std::unordered_set<locator::host_id>>> replicas_per_dc_rack;
+
+    const auto& topo = tm->get_topology();
 
     replicas = cur_tablets.get_tablet_info(tb).replicas;
     for (const auto& tr : replicas) {
@@ -379,7 +380,7 @@ future<tablet_replica_set> network_topology_strategy::reallocate_tablets(schema_
             continue;
         }
         if (dc_rf > dc_node_count) {
-            replicas = co_await add_tablets_in_dc(s, topo, load, tb, replicas_per_dc_rack[dc], replicas, dc, dc_node_count, dc_rf);
+            replicas = co_await add_tablets_in_dc(s, tm, load, tb, replicas_per_dc_rack[dc], replicas, dc, dc_node_count, dc_rf);
         } else {
             replicas = drop_tablets_in_dc(s, topo, load, tb, replicas, dc, dc_node_count, dc_rf);
         }
@@ -388,11 +389,13 @@ future<tablet_replica_set> network_topology_strategy::reallocate_tablets(schema_
     co_return replicas;
 }
 
-future<tablet_replica_set> network_topology_strategy::add_tablets_in_dc(schema_ptr s, const locator::topology& topo, load_sketch& load, tablet_id tb,
+future<tablet_replica_set> network_topology_strategy::add_tablets_in_dc(schema_ptr s, token_metadata_ptr tm, load_sketch& load, tablet_id tb,
         std::map<sstring, std::unordered_set<locator::host_id>>& replicas_per_rack,
         const tablet_replica_set& cur_replicas,
         sstring dc, size_t dc_node_count, size_t dc_rf) const {
     static thread_local std::default_random_engine rnd_engine{std::random_device{}()};
+
+    const auto& topo = tm->get_topology();
 
     auto replicas = cur_replicas;
     // all_dc_racks is ordered lexicographically on purpose
@@ -430,7 +433,7 @@ future<tablet_replica_set> network_topology_strategy::add_tablets_in_dc(schema_p
                 new_racks.emplace_back(rack) : existing_racks.emplace_back(rack);
         for (const auto& node : nodes) {
             const auto& host_id = node->host_id();
-            if (!existing.contains(host_id)) {
+            if (!existing.contains(host_id) && tm->is_normal_token_owner(node->host_id())) {
                 candidate.nodes.emplace_back(host_id, load.get_load(host_id));
             }
         }

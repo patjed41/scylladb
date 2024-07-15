@@ -571,10 +571,12 @@ public:
         // If tables still have a low tablet count, the concurrency must be high in order to saturate the cluster.
         // If a table covers the entire cluster, and needs split, concurrency will be reduced to 1.
 
-        size_t total_shard_count = std::invoke([&topo = _tm->get_topology()] {
+        size_t total_shard_count = std::invoke([&] {
             size_t shard_count = 0;
-            topo.for_each_node([&] (const locator::node* node_ptr) {
-                shard_count += node_ptr->get_shard_count();
+            _tm->get_topology().for_each_node([&] (const locator::node* node_ptr) {
+                if (_tm->is_normal_token_owner(node_ptr->host_id())) {
+                    shard_count += node_ptr->get_shard_count();
+                }
             });
             return shard_count;
         });
@@ -1224,6 +1226,9 @@ public:
         };
 
         topo.for_each_node([&] (const locator::node* node_ptr) {
+            if (!_tm->is_normal_token_owner(node_ptr->host_id())) {
+                return;
+            }
             if (node_ptr->dc_rack().dc != dc) {
                 return;
             }
