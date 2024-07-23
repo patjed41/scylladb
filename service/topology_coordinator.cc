@@ -1847,13 +1847,13 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                 try {
                     // No need to stream data when the node is zero-token.
                     if (!node.rs->ring.tokens.empty()) {
-                    if (node.rs->state == node_state::removing) {
-                        // tell all nodes to stream data of the removed node to new range owners
-                        node = co_await exec_global_command(std::move(node), cmd);
-                    } else {
-                        // Tell joining/leaving/replacing node to stream its ranges
-                        node = co_await exec_direct_command(std::move(node), cmd);
-                    }
+                        if (node.rs->state == node_state::removing) {
+                            // tell all nodes to stream data of the removed node to new range owners
+                            node = co_await exec_global_command(std::move(node), cmd);
+                        } else {
+                            // Tell joining/leaving/replacing node to stream its ranges
+                            node = co_await exec_direct_command(std::move(node), cmd);
+                        }
                     }
                 } catch (term_changed_error&) {
                     throw;
