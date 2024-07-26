@@ -15,14 +15,19 @@ from test.topology.conftest import cluster_con
 
 @pytest.mark.asyncio
 async def test_add_third_node_while_writing_with_cl2_rf2(manager: ManagerClient):
+    cmdline = [
+        '--logger-log-level', 'storage_proxy=trace',
+        '--logger-log-level', 'cql_server=trace',
+        '--logger-log-level', 'query_processor=trace',
+        ]
     logging.info('Adding two initial servers')
-    servers = await manager.servers_add(2)
+    servers = await manager.servers_add(2, cmdline=cmdline)
 
     await wait_for_cql_and_get_hosts(manager.cql, servers, time.time() + 60)
     finish_writes = await start_writes(manager.cql, 2)
 
     logging.info('Adding the third server')
-    await manager.server_add()
+    await manager.server_add(cmdline=cmdline)
 
     logging.info('Checking results of the background writes')
     await finish_writes()

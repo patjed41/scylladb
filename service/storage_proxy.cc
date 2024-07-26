@@ -1465,7 +1465,7 @@ public:
 
     void on_timeout() {
         if (_cl_achieved) {
-            slogger.trace("Write is not acknowledged by {} replicas after achieving CL", get_targets());
+            slogger.trace("Write is not acknowledged by {} replicas after achieving CL, id {}", get_targets(), _id);
         }
         _error = error::TIMEOUT;
         // We don't delay request completion after a timeout, but its possible we are currently delaying.
