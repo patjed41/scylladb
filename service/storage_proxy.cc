@@ -1601,6 +1601,7 @@ public:
     future<> apply_remotely(gms::inet_address ep, const inet_address_vector_replica_set& forward,
             storage_proxy::response_id_type response_id, storage_proxy::clock_type::time_point timeout,
             tracing::trace_state_ptr tr_state) {
+        slogger.info("APPLY_REMOTELY {}", ep);
         return _mutation_holder->apply_remotely(*_proxy, ep, forward,
             response_id, timeout, std::move(tr_state), _rate_limit_info,
             storage_proxy::get_fence(*_effective_replication_map_ptr));
@@ -4194,19 +4195,25 @@ void storage_proxy::send_to_live_endpoints(storage_proxy::response_id_type respo
             std::optional<sstring> msg;
             if (try_catch<replica::rate_limit_exception>(eptr)) {
                 // There might be a lot of those, so ignore
+                slogger.error("RATE_LIMIT");
                 err = error::RATE_LIMIT;
             } else if (const auto* stale = try_catch<replica::stale_topology_exception>(eptr)) {
+                slogger.error("STALE_TOPOLOGY_EXCEPTION");
                 msg = stale->what();
             } else if (try_catch<rpc::closed_error>(eptr)) {
+                slogger.error("CLOSED_ERROR");
                 // ignore, disconnect will be logged by gossiper
             } else if (try_catch<seastar::gate_closed_exception>(eptr)) {
+                slogger.error("GATE_CLOSED_EXCEPTION");
                 // may happen during shutdown, ignore it
             } else if (try_catch<timed_out_error>(eptr)) {
+                slogger.error("TIMED_OUT_ERROR");
                 // from lmutate(). Ignore so that logs are not flooded
                 // database total_writes_timedout counter was incremented.
                 // It needs to be recorded that the timeout occurred locally though.
                 err = error::TIMEOUT;
             } else if (auto* e = try_catch<db::virtual_table_update_exception>(eptr)) {
+                slogger.error("VIRTUAL_TABLE_UPDATE_EXCEPTION");
                 msg = e->grab_cause();
             } else {
                 slogger.error("exception during mutation write to {}: {}", coordinator, eptr);
