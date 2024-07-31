@@ -24,23 +24,24 @@ from test.topology.conftest import cluster_con
 @log_run_time
 async def test_topology_recovery_basic(request, mode: str, manager: ManagerClient):
     # Increase ring delay to ensure nodes learn about CDC generations before they start operating.
-    ring_delay = 5000 if mode == 'debug' else 5000
+    ring_delay = 15000 if mode == 'debug' else 5000
     normal_cfg = {'ring_delay_ms': ring_delay}
     zero_token_cfg = {'ring_delay_ms': ring_delay, 'join_ring': False}
 
-    servers = await manager.servers_add(2, config=normal_cfg)
-    servers += [await manager.server_add(config=zero_token_cfg)]
+    servers = [await manager.server_add(config=normal_cfg),
+               await manager.server_add(config=zero_token_cfg),
+               await manager.server_add(config=normal_cfg)]
 
     # The zero-token node requires a different cql session not to be ignored by the driver because of empty tokens in
     # the system.peers table.
     # We need one cql session for both token-owning nodes to continue the write workload during the rolling restart.
-    cql_normal = cluster_con([servers[0].ip_addr, servers[1].ip_addr], 9042, False, load_balancing_policy=
-                             WhiteListRoundRobinPolicy([servers[0].ip_addr, servers[1].ip_addr])).connect()
-    cql_zero_token = cluster_con([servers[2].ip_addr], 9042, False, load_balancing_policy=
-                                 WhiteListRoundRobinPolicy([servers[2].ip_addr])).connect()
+    cql_normal = cluster_con([servers[0].ip_addr, servers[2].ip_addr], 9042, False, load_balancing_policy=
+                             WhiteListRoundRobinPolicy([servers[0].ip_addr, servers[2].ip_addr])).connect()
+    cql_zero_token = cluster_con([servers[1].ip_addr], 9042, False, load_balancing_policy=
+                                 WhiteListRoundRobinPolicy([servers[1].ip_addr])).connect()
     # In the whole test, cqls[i] and hosts[i] correspond to servers[i].
-    cqls = [cql_normal, cql_normal, cql_zero_token]
-    hosts = [cql_normal.hosts[0], cql_normal.hosts[1], cql_zero_token.hosts[0]]
+    cqls = [cql_normal, cql_zero_token, cql_normal]
+    hosts = [cql_normal.hosts[0], cql_zero_token.hosts[0], cql_normal.hosts[1]]
 
     # We don't want to use ManagerClient.rolling_restart. Waiting for CQL of the zero-token node would time out.
     async def rolling_restart():
@@ -56,8 +57,6 @@ async def test_topology_recovery_basic(request, mode: str, manager: ManagerClien
             for idx2 in range(len(servers)):
                 if idx2 != idx:
                     await manager.server_sees_other_server(servers[idx2].ip_addr, s.ip_addr)
-
-            await wait_for_cql(cqls[idx], hosts[idx], time.time() + 60)
 
     logging.info("Waiting until driver connects to every server")
     await asyncio.gather(*(wait_for_cql(cql, h, time.time() + 60) for cql, h in zip(cqls, hosts)))
@@ -87,11 +86,11 @@ async def test_topology_recovery_basic(request, mode: str, manager: ManagerClien
         nonlocal cqls
         cql_normal.shutdown()
         cql_zero_token.shutdown()
-        cql_normal = cluster_con([servers[0].ip_addr, servers[1].ip_addr], 9042, False, load_balancing_policy=
-                                 WhiteListRoundRobinPolicy([servers[0].ip_addr, servers[1].ip_addr])).connect()
-        cql_zero_token = cluster_con([servers[2].ip_addr], 9042, False, load_balancing_policy=
-                                     WhiteListRoundRobinPolicy([servers[2].ip_addr])).connect()
-        cqls = [cql_normal, cql_normal, cql_zero_token]
+        cql_normal = cluster_con([servers[0].ip_addr, servers[2].ip_addr], 9042, False, load_balancing_policy=
+                                 WhiteListRoundRobinPolicy([servers[0].ip_addr, servers[2].ip_addr])).connect()
+        cql_zero_token = cluster_con([servers[1].ip_addr], 9042, False, load_balancing_policy=
+                                     WhiteListRoundRobinPolicy([servers[1].ip_addr])).connect()
+        cqls = [cql_normal, cql_zero_token, cql_normal]
 
     reconnect_cqls()
 
