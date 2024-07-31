@@ -237,7 +237,7 @@ static std::vector<gms::inet_address> get_neighbors(
     remove_item(ret, my_address);
 
     if (!data_centers.empty()) {
-        auto dc_endpoints_map = erm.get_token_metadata().get_topology().get_datacenter_endpoints();
+        auto dc_endpoints_map = erm.get_token_metadata().get_datacenter_token_owners();
         std::unordered_set<gms::inet_address> dc_endpoints;
         for (const sstring& dc : data_centers) {
             auto it = dc_endpoints_map.find(dc);
@@ -387,7 +387,7 @@ static future<bool> flush_hints(repair_service& rs, repair_uniq_id id, replica::
 
     bool hints_batchlog_flushed = false;
     if (needs_flush_before_repair) {
-        auto waiting_nodes = db.get_token_metadata().get_normal_token_owners_ips();
+        auto waiting_nodes = db.get_token_metadata().get_topology().get_all_ips();
         std::erase_if(waiting_nodes, [&] (const auto& addr) {
             return ignore_nodes.contains(addr);
         });
@@ -2067,7 +2067,7 @@ future<> repair_service::replace_with_repair(locator::token_metadata_ptr tmptr, 
 }
 
 static std::unordered_set<gms::inet_address> get_nodes_in_dcs(std::vector<sstring> data_centers, locator::effective_replication_map_ptr erm) {
-    auto dc_endpoints_map = erm->get_token_metadata().get_topology().get_datacenter_endpoints();
+    auto dc_endpoints_map = erm->get_token_metadata().get_datacenter_token_owners();
     std::unordered_set<gms::inet_address> dc_endpoints;
     for (const sstring& dc : data_centers) {
         auto it = dc_endpoints_map.find(dc);

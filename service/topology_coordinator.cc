@@ -2474,18 +2474,17 @@ future<bool> topology_coordinator::maybe_start_tablet_split_finalization(group0_
 
 future<locator::load_stats> topology_coordinator::refresh_tablet_load_stats() {
     auto tm = get_token_metadata_ptr();
-    auto& topology = tm->get_topology();
 
     locator::load_stats stats;
     static constexpr std::chrono::seconds wait_for_live_nodes_timeout{30};
 
     std::unordered_map<table_id, size_t> total_replicas;
 
-    for (auto& [dc, endpoints] : topology.get_datacenter_endpoints()) {
+    for (auto& [dc, endpoints] : tm->get_datacenter_token_owners()) {
         locator::load_stats dc_stats;
         rtlogger.info("raft topology: Refreshing table load stats for DC {} that has {} endpoints", dc, endpoints.size());
         co_await coroutine::parallel_for_each(endpoints, [&] (const auto& endpoint) -> future<> {
-            auto dst = tm->get_endpoint_for_host_id_if_known(endpoint);
+            auto dst = tm->get_host_id_if_known(endpoint);
             if (!dst) {
                 co_return;
             }

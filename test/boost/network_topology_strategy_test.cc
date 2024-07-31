@@ -104,7 +104,7 @@ void endpoints_check(
     const locator::topology& topo,
     bool strict_dc_rf = false) {
 
-    auto&& nodes_per_dc = tm->get_topology().get_datacenter_endpoints();
+    auto&& nodes_per_dc = tm->get_datacenter_token_owners();
     const network_topology_strategy* nts_ptr =
             dynamic_cast<const network_topology_strategy*>(ars_ptr.get());
 
@@ -728,15 +728,13 @@ static locator::host_id_set calculate_natural_endpoints(
         skipped_dc_endpoints[dc_name] = {};
     }
 
-    const topology& tp = tm.get_topology();
-
     //
-    // all endpoints in each DC, so we can check when we have exhausted all
-    // the members of a DC
+    // all token-owning nodes in each DC, so we can check when we have exhausted all
+    // the token-owning members of a DC
     //
     const std::unordered_map<sstring,
                        std::unordered_set<inet_address>>
-        all_endpoints = tp.get_datacenter_endpoints();
+        all_endpoints = tm.get_datacenter_token_owners();
     //
     // all racks in a DC so we can check when we have exhausted all racks in a
     // DC
@@ -744,7 +742,7 @@ static locator::host_id_set calculate_natural_endpoints(
     const std::unordered_map<sstring,
                        std::unordered_map<sstring,
                                           std::unordered_set<inet_address>>>
-        racks = tp.get_datacenter_racks();
+        racks = tm.get_datacenter_racks_token_owners();
 
     // not aware of any cluster members
     assert(!all_endpoints.empty() && !racks.empty());

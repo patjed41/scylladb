@@ -339,6 +339,10 @@ public:
 
     void for_each_node(std::function<void(const node*)> func) const;
 
+    std::unordered_set<const node*> get_nodes() const;
+
+    std::unordered_set<gms::inet_address> get_all_ips() const;
+
     host_id my_host_id() const noexcept {
         return _cfg.this_host_id;
     }
