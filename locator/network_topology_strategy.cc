@@ -396,7 +396,7 @@ future<tablet_replica_set> network_topology_strategy::add_tablets_in_dc(schema_p
 
     auto replicas = cur_replicas;
     // all_dc_racks is ordered lexicographically on purpose
-    auto all_dc_racks = boost::copy_range<std::map<sstring, std::unordered_set<const node*>>>(topo.get_datacenter_rack_nodes().at(dc));
+    auto all_dc_racks = boost::copy_range<std::map<sstring, std::unordered_set<gms::inet_address>>>(topo.get_datacenter_racks().at(dc));
 
     // Track all nodes with no replicas on them for this tablet, per rack.
     struct node_load {
@@ -420,18 +420,18 @@ future<tablet_replica_set> network_topology_strategy::add_tablets_in_dc(schema_p
     // unpoplated rack.
     candidates_list new_racks;
 
-    for (const auto& [rack, nodes] : all_dc_racks) {
+    for (const auto& [rack, endpoints] : all_dc_racks) {
         co_await coroutine::maybe_yield();
-        if (nodes.empty()) {
+        if (endpoints.empty()) {
             continue;
         }
         const auto& existing = replicas_per_rack[rack];
         auto& candidate = existing.empty() ?
                 new_racks.emplace_back(rack) : existing_racks.emplace_back(rack);
-        for (const auto& node : nodes) {
-            const auto& host_id = node->host_id();
-            if (!existing.contains(host_id)) {
-                candidate.nodes.emplace_back(host_id, load.get_load(host_id));
+        for (const auto& endpoint : endpoints) {
+            const auto& node = topo.find_node(endpoint);
+            if (node && !existing.contains(node->host_id())) {
+                candidate.nodes.emplace_back(node->host_id(), load.get_load(node->host_id()));
             }
         }
         if (candidate.nodes.empty()) {

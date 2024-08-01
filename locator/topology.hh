@@ -266,11 +266,6 @@ public:
         return _dc_nodes;
     }
 
-    const std::unordered_map<sstring, std::unordered_map<sstring, std::unordered_set<const node*>>>&
-    get_datacenter_rack_nodes() const noexcept {
-        return _dc_rack_nodes;
-    }
-
     const std::unordered_map<sstring,
                        std::unordered_map<sstring,
                                           std::unordered_set<inet_address>>>&
@@ -398,7 +393,6 @@ private:
     std::unordered_map<inet_address, const node*> _nodes_by_endpoint;
 
     std::unordered_map<sstring, std::unordered_set<const node*>> _dc_nodes;
-    std::unordered_map<sstring, std::unordered_map<sstring, std::unordered_set<const node*>>> _dc_rack_nodes;
 
     /** multi-map: DC -> endpoints in that DC */
     std::unordered_map<sstring,

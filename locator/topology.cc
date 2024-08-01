@@ -87,7 +87,6 @@ future<> topology::clear_gently() noexcept {
     co_await utils::clear_gently(_dc_endpoints);
     co_await utils::clear_gently(_dc_racks);
     _datacenters.clear();
-    _dc_rack_nodes.clear();
     _dc_nodes.clear();
     _nodes_by_endpoint.clear();
     _nodes_by_host_id.clear();
@@ -111,7 +110,6 @@ topology::topology(topology&& o) noexcept
     , _nodes_by_host_id(std::move(o._nodes_by_host_id))
     , _nodes_by_endpoint(std::move(o._nodes_by_endpoint))
     , _dc_nodes(std::move(o._dc_nodes))
-    , _dc_rack_nodes(std::move(o._dc_rack_nodes))
     , _dc_endpoints(std::move(o._dc_endpoints))
     , _dc_racks(std::move(o._dc_racks))
     , _sort_by_proximity(o._sort_by_proximity)
@@ -354,7 +352,6 @@ void topology::index_node(const node* node) {
         const auto& rack = node->dc_rack().rack;
         const auto& endpoint = node->endpoint();
         _dc_nodes[dc].emplace(node);
-        _dc_rack_nodes[dc][rack].emplace(node);
         _dc_endpoints[dc].insert(endpoint);
         _dc_racks[dc][rack].insert(endpoint);
         _datacenters.insert(dc);
@@ -378,12 +375,10 @@ void topology::unindex_node(const node* node) {
                 auto& eps = dit->second;
                 eps.erase(ep);
                 if (eps.empty()) {
-                    _dc_rack_nodes.erase(dc);
                     _dc_racks.erase(dc);
                     _dc_endpoints.erase(dit);
                     _datacenters.erase(dc);
                 } else {
-                    _dc_rack_nodes[dc][rack].erase(node);
                     auto& racks = _dc_racks[dc];
                     if (auto rit = racks.find(rack); rit != racks.end()) {
                         auto& rack_eps = rit->second;
