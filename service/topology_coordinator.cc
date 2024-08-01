@@ -2481,11 +2481,14 @@ future<locator::load_stats> topology_coordinator::refresh_tablet_load_stats() {
 
     std::unordered_map<table_id, size_t> total_replicas;
 
-    for (auto& [dc, nodes] : topology.get_datacenter_nodes()) {
+    for (auto& [dc, endpoints] : topology.get_datacenter_endpoints()) {
         locator::load_stats dc_stats;
-        rtlogger.info("raft topology: Refreshing table load stats for DC {} that has {} endpoints", dc, nodes.size());
-        co_await coroutine::parallel_for_each(nodes, [&] (const auto& node) -> future<> {
-            auto dst = node->host_id();
+        rtlogger.info("raft topology: Refreshing table load stats for DC {} that has {} endpoints", dc, endpoints.size());
+        co_await coroutine::parallel_for_each(endpoints, [&] (const auto& endpoint) -> future<> {
+            auto dst = tm->get_endpoint_for_host_id_if_known(endpoint);
+            if (!dst) {
+                co_return;
+            }
 
             _as.check();
 
@@ -2503,9 +2506,9 @@ future<locator::load_stats> topology_coordinator::refresh_tablet_load_stats() {
             auto sub = _as.subscribe(request_abort);
 
             auto node_stats = co_await ser::storage_service_rpc_verbs::send_table_load_stats(&_messaging,
-                                                                                             netw::msg_addr(id2ip(dst)),
+                                                                                             netw::msg_addr(id2ip(*dst)),
                                                                                              as,
-                                                                                             raft::server_id(dst.uuid()));
+                                                                                             raft::server_id(dst->uuid()));
 
             dc_stats += node_stats;
         });
