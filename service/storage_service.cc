@@ -1284,6 +1284,10 @@ future<> storage_service::raft_initialize_discovery_leader(const join_node_reque
             throw std::runtime_error(::format("Cannot perform a replace operation because this is the first node in the cluster"));
         }
 
+        if (params.num_tokens == 0 && params.tokens_string.empty()) {
+            throw std::runtime_error("Cannot start the first node in the cluster as zero-token");
+        }
+
         rtlogger.info("adding myself as the first node to the topology");
         auto guard = co_await _group0->client().start_operation(_group0_as, raft_timeout{});
 
@@ -1589,8 +1593,14 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
 
     // If this is a restarting node, we should update tokens before gossip starts
     auto my_tokens = co_await _sys_ks.local().get_saved_tokens();
-    bool restarting_normal_node = _sys_ks.local().bootstrap_complete() && !is_replacing() && !my_tokens.empty();
+    bool restarting_normal_node = _sys_ks.local().bootstrap_complete() && !is_replacing();
     if (restarting_normal_node) {
+        if (my_tokens.empty() && _db.local().get_config().join_ring()) {
+            throw std::runtime_error("Cannot restart with join_ring=true because the node has already joined the cluster as a zero-token node");
+        }
+        if (!my_tokens.empty() && !_db.local().get_config().join_ring()) {
+            throw std::runtime_error("Cannot restart with join_ring=false because the node already owns tokens");
+        }
         slogger.info("Restarting a node in NORMAL status");
         // This node must know about its chosen tokens before other nodes do
         // since they may start sending writes to this node after it gossips status = NORMAL.
@@ -1731,8 +1741,8 @@ future<> storage_service::join_token_ring(sharded<db::system_distributed_keyspac
         .datacenter = _snitch.local()->get_datacenter(),
         .rack = _snitch.local()->get_rack(),
         .release_version = version::release(),
-        .num_tokens = _db.local().get_config().num_tokens(),
-        .tokens_string = _db.local().get_config().initial_token(),
+        .num_tokens = _db.local().get_config().join_ring() ? _db.local().get_config().num_tokens() : 0,
+        .tokens_string = _db.local().get_config().join_ring() ? _db.local().get_config().initial_token() : sstring(),
         .shard_count = smp::count,
         .ignore_msb =  _db.local().get_config().murmur3_partitioner_ignore_msb_bits(),
         .supported_features = boost::copy_range<std::vector<sstring>>(_feature_service.supported_feature_set()),
@@ -2983,6 +2993,11 @@ future<> storage_service::join_cluster(sharded<db::system_distributed_keyspace>&
         }
     }
 
+    if (!_db.local().get_config().join_ring() && !_sys_ks.local().bootstrap_complete() && !raft_topology_change_enabled()) {
+        throw std::runtime_error("Cannot boot the node with join_ring=false because the raft-based topology is disabled");
+        // We must allow restarts of zero-token nodes in the gossip-based topology due to the recovery mode.
+    }
+
     co_return co_await join_token_ring(sys_dist_ks, proxy, std::move(initial_contact_nodes),
             std::move(loaded_endpoints), std::move(loaded_peer_features), get_ring_delay(), start_hm, new_generation);
 }
@@ -3569,6 +3584,12 @@ void on_streaming_finished() {
     utils::get_local_injector().inject("storage_service_streaming_sleep3", std::chrono::seconds{3}).get();
 }
 
+static size_t count_normal_token_owners(const topology& topology) {
+    return std::count_if(topology.normal_nodes.begin(), topology.normal_nodes.end(), [] (const auto& node) {
+        return !node.second.ring.tokens.empty();
+    });
+}
+
 future<> storage_service::raft_decommission() {
     auto& raft_server = _group0->group0_server();
     utils::UUID request_id;
@@ -3589,6 +3610,10 @@ future<> storage_service::raft_decommission() {
 
         if (_topology_state_machine._topology.normal_nodes.size() == 1) {
             throw std::runtime_error("Cannot decommission last node in the cluster");
+        }
+
+        if (!rs.ring.tokens.empty() && count_normal_token_owners(_topology_state_machine._topology) == 1) {
+            throw std::runtime_error("Cannot decommission the last token-owning node in the cluster");
         }
 
         rtlogger.info("request decommission for: {}", raft_server.id());
@@ -3923,6 +3948,15 @@ future<> storage_service::raft_removenode(locator::host_id host_id, std::list<lo
         if (rs.state != node_state::normal) {
             throw std::runtime_error(::format("removenode: node {} is in '{}' state. Wait for it to be in 'normal' state", id, rs.state));
         }
+
+        if (!rs.ring.tokens.empty() && count_normal_token_owners(_topology_state_machine._topology) == 1) {
+            throw std::runtime_error(::format(
+                    "removenode: node {} cannot be removed because it is the last token-owning "
+                    "node in the cluster. If this node is unrecoverable, the cluster has entered an incorrect "
+                    "and unrecoverable state. All user data and a part of the system data is lost.",
+                    id));
+        }
+
         const auto& am = _group0->address_map();
         auto ip = am.find(id);
         if (!ip) {
@@ -4624,6 +4658,11 @@ future<> storage_service::raft_rebuild(sstring source_dc) {
 
         if (rs.state != node_state::normal) {
             throw std::runtime_error(::format("local node is not in the normal state (current state: {})", rs.state));
+        }
+
+        if (rs.ring.tokens.empty()) {
+            rtlogger.warn("local node does not own any tokens, skipping redundant rebuild");
+            co_return;
         }
 
         if (_topology_state_machine._topology.normal_nodes.size() == 1) {
@@ -5467,8 +5506,16 @@ future<raft_topology_cmd_result> storage_service::raft_topology_cmd_handler(raft
                 co_await with_scheduling_group(_db.local().get_streaming_scheduling_group(), coroutine::lambda([&] () -> future<> {
                     const auto& rs = _topology_state_machine._topology.find(raft_server.id())->second;
                     auto tstate = _topology_state_machine._topology.tstate;
-                    if (rs.ring.tokens.empty() ||
-                        (tstate != topology::transition_state::write_both_read_old && rs.state != node_state::normal && rs.state != node_state::rebuilding)) {
+                    if (rs.ring.tokens.empty()) {
+                        if (rs.state == node_state::normal) {
+                            rtlogger.info("finishing the stream_ranges request, the zero-token node has nothing to stream");
+                            result.status = raft_topology_cmd_result::command_status::success;
+                        } else {
+                            rtlogger.warn("the node got stream_ranges request but it does not own any tokens and is in the {} state", rs.state);
+                        }
+                        co_return;
+                    }
+                    if (tstate != topology::transition_state::write_both_read_old && rs.state != node_state::normal && rs.state != node_state::rebuilding) {
                         rtlogger.warn("got stream_ranges request while my tokens state is {} and node state is {}", tstate, rs.state);
                         co_return;
                     }
@@ -6456,6 +6503,28 @@ future<join_node_request_result> storage_service::join_node_request_handler(join
                 }
             } catch (wait_for_ip_timeout& ex) {
                 rtlogger.warn("Failed to check liveness for replaced id {}. Asumming it is dead, Error: {}", *params.replaced_id, ex);
+            }
+
+            auto replaced_it = _topology_state_machine._topology.normal_nodes.find(*params.replaced_id);
+            if (replaced_it == _topology_state_machine._topology.normal_nodes.end()) {
+                result.result = join_node_request_result::rejected{
+                    .reason = ::format("Cannot replace node {} because it is not in the 'normal' state", *params.replaced_id),
+                };
+                co_return result;
+            }
+
+            auto is_zero_token = params.num_tokens == 0 && params.tokens_string.empty();
+            if (replaced_it->second.ring.tokens.empty() && !is_zero_token) {
+                result.result = join_node_request_result::rejected{
+                    .reason = fmt::format("Cannot replace the zero-token node {} with a token-owning node", *params.replaced_id),
+                };
+                co_return result;
+            }
+            if (!replaced_it->second.ring.tokens.empty() && is_zero_token) {
+                result.result = join_node_request_result::rejected{
+                    .reason = fmt::format("Cannot replace the token-owning node {} with a zero-token node", *params.replaced_id),
+                };
+                co_return result;
             }
         }
 
