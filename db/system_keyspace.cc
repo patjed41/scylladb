@@ -2099,7 +2099,7 @@ future<> system_keyspace::remove_endpoint(gms::inet_address ep) {
 
 future<> system_keyspace::update_tokens(const std::unordered_set<dht::token>& tokens) {
     if (tokens.empty()) {
-        throw std::invalid_argument("remove_endpoint should be used instead");
+        co_return;
     }
 
     sstring req = format("INSERT INTO system.{} (key, tokens) VALUES (?, ?)", LOCAL);
@@ -2887,23 +2887,6 @@ static std::set<sstring> decode_features(const set_type_impl::native_type& featu
     return fset;
 }
 
-static bool must_have_tokens(service::node_state nst) {
-    switch (nst) {
-    case service::node_state::none: return false;
-    // Bootstrapping and replacing nodes don't have tokens at first,
-    // they are inserted only at some point during bootstrap/replace
-    case service::node_state::bootstrapping: return false;
-    case service::node_state::replacing: return false;
-    // A decommissioning node doesn't have tokens at the end, they are
-    // removed during transition to the left_token_ring state.
-    case service::node_state::decommissioning: return false;
-    case service::node_state::removing: return true;
-    case service::node_state::rebuilding: return true;
-    case service::node_state::normal: return true;
-    case service::node_state::left: return false;
-    }
-}
-
 future<service::topology> system_keyspace::load_topology_state(const std::unordered_set<locator::host_id>& force_load_hosts) {
     auto rs = co_await execute_cql(
         format("SELECT * FROM system.{} WHERE key = '{}'", TOPOLOGY, TOPOLOGY));
@@ -2938,15 +2921,6 @@ future<service::topology> system_keyspace::load_topology_state(const std::unorde
         service::ring_slice ring_slice;
         if (row.has("tokens")) {
             ring_slice.tokens = decode_tokens(deserialize_set_column(*topology(), row, "tokens"));
-
-            if (ring_slice.tokens.empty()) {
-                on_fatal_internal_error(slogger, format(
-                    "load_topology_state: node {} has tokens column present but tokens are empty",
-                    host_id));
-            }
-        } else if (must_have_tokens(nstate)) {
-            on_fatal_internal_error(slogger, format(
-                        "load_topology_state: node {} in {} state but missing ring slice", host_id, nstate));
         }
 
         std::optional<raft::server_id> replaced_id;
