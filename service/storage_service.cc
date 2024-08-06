@@ -3430,7 +3430,7 @@ future<std::map<gms::inet_address, float>> storage_service::effective_ownership(
         });
 
         const auto token_ownership = dht::token::describe_ownership(tokens);
-        const auto datacenter_endpoints = tm.get_datacenter_token_owners();
+        const auto datacenter_endpoints = tm.get_topology().get_datacenter_endpoints();
         std::map<gms::inet_address, float> final_ownership;
 
         for (const auto& [dc, endpoints_map] : datacenter_endpoints) {
