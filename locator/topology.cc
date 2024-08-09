@@ -477,7 +477,7 @@ const node* topology::add_or_update_endpoint(host_id id, std::optional<inet_addr
     return add_node(id,
                     opt_ep.value_or(inet_address{}),
                     opt_dr.value_or(endpoint_dc_rack::default_location),
-                    opt_st.value_or(node::state::normal),
+                    opt_st.value_or(node::state::none),
                     shard_count.value_or(0));
 }
 
