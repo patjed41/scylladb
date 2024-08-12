@@ -145,6 +145,10 @@ public:
         return _state == state::left;
     }
 
+    bool is_none() const noexcept {
+        return _state == state::none;
+    }
+
     shard_id get_shard_count() const noexcept { return _shard_count; }
 
     static std::string to_string(state);

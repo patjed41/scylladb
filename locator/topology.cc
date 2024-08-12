@@ -559,7 +559,7 @@ std::weak_ordering topology::compare_endpoints(const inet_address& address, cons
 
 void topology::for_each_node(std::function<void(const node*)> func) const {
     for (const auto& np : _nodes) {
-        if (np && !np->left()) {
+        if (np && !np->left() && !np->is_none()) {
             func(np.get());
         }
     }
@@ -568,7 +568,7 @@ void topology::for_each_node(std::function<void(const node*)> func) const {
 std::unordered_set<const node*> topology::get_nodes() const {
     std::unordered_set<const node*> nodes;
     for (const auto& np : _nodes) {
-        if (np && !np->left()) {
+        if (np && !np->left() && !np->is_none()) {
             nodes.insert(np.get());
         }
     }
@@ -578,7 +578,7 @@ std::unordered_set<const node*> topology::get_nodes() const {
 std::unordered_set<gms::inet_address> topology::get_all_ips() const {
     std::unordered_set<gms::inet_address> ips;
     for (const auto& np : _nodes) {
-        if (np && !np->left()) {
+        if (np && !np->left() && !np->is_none()) {
             ips.insert(np->endpoint());
         }
     }
