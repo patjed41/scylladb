@@ -972,13 +972,16 @@ future<> generation_service::check_and_repair_cdc_streams() {
 
 future<> generation_service::handle_cdc_generation(cdc::generation_id_v2 gen_id) {
     auto ts = get_ts(gen_id);
+    cdc_log.info("handle_cdc_generation 1");
     if (co_await container().map_reduce(and_reducer(), [ts] (generation_service& svc) {
         return !svc._cdc_metadata.prepare(ts);
     })) {
         co_return;
     }
+    cdc_log.info("handle_cdc_generation 2");
 
     auto gen_data = co_await _sys_ks.local().read_cdc_generation(gen_id.id);
+    cdc_log.info("handle_cdc_generation 3");
 
     bool using_this_gen = co_await container().map_reduce(or_reducer(), [ts, &gen_data] (generation_service& svc) {
         return svc._cdc_metadata.insert(ts, cdc::topology_description{gen_data});

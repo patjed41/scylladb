@@ -811,8 +811,9 @@ future<> storage_service::topology_state_load(state_change_hint hint) {
     }
 
     for (const auto& gen_id : _topology_state_machine._topology.committed_cdc_generations) {
-        rtlogger.trace("topology_state_load: process committed cdc generation {}", gen_id);
+        rtlogger.info("topology_state_load: process committed cdc generation {}", gen_id);
         co_await _cdc_gens.local().handle_cdc_generation(gen_id);
+        rtlogger.info("finished processing");
         if (gen_id == _topology_state_machine._topology.committed_cdc_generations.back()) {
             co_await _sys_ks.local().update_cdc_generation_id(gen_id);
             rtlogger.debug("topology_state_load: the last committed CDC generation ID: {}", gen_id);
@@ -821,6 +822,7 @@ future<> storage_service::topology_state_load(state_change_hint hint) {
 
     for (auto& id : _topology_state_machine._topology.ignored_nodes) {
         // Ban all ignored nodes. We do not allow them to go back online
+        rtlogger.info("ban_host {}", id);
         co_await _messaging.local().ban_host(locator::host_id{id.uuid()});
     }
 
