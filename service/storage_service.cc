@@ -2960,6 +2960,10 @@ future<> storage_service::join_cluster(sharded<db::system_distributed_keyspace>&
         loaded_endpoints | std::views::transform([] (const auto& x) {
             return x.second.endpoint;
         }) | std::ranges::to<std::unordered_set<gms::inet_address>>();
+    auto new_leader_ip_str = co_await _sys_ks.local().get_scylla_local_param_as<sstring>("new_leader_ip");
+    if (new_leader_ip_str) {
+        initial_contact_nodes = std::unordered_set{gms::inet_address(*new_leader_ip_str)};
+    }
     auto loaded_peer_features = co_await _sys_ks.local().load_peer_features();
     slogger.info("initial_contact_nodes={}, loaded_endpoints={}, loaded_peer_features={}",
             initial_contact_nodes, loaded_endpoints | std::views::keys, loaded_peer_features.size());
@@ -2978,7 +2982,7 @@ future<> storage_service::join_cluster(sharded<db::system_distributed_keyspace>&
             throw std::runtime_error("Cannot force gossip topology changes - the cluster is using raft-based topology");
         }
         slogger.info("The node is already in group 0 and will restart in {} mode", raft_topology_change_enabled() ? "raft" : "legacy");
-    } else if (_sys_ks.local().bootstrap_complete()) {
+    } else if (_sys_ks.local().bootstrap_complete() && !new_leader_ip_str) {
         // We already bootstrapped but we are not a part of group 0. This means that we are restarting after recovery.
         slogger.info("Restarting in legacy mode. The node was either upgraded from a non-raft-topology version or is restarting after recovery.");
         set_topology_change_kind(topology_change_kind::legacy);
@@ -6744,7 +6748,9 @@ future<join_node_request_result> storage_service::join_node_request_handler(join
                 result.result = join_node_request_result::rejected{
                     .reason = "The node has already been removed from the cluster",
                 };
-            } else {
+                co_return result;
+            } else if (rs.state != node_state::normal) {
+                // We don't want to reject the join request from a restarting node during recovery.
                 rtlogger.warn("the node {} attempted to join",
                         " again after an unfinished attempt but it is no longer"
                         " allowed to do so. Rejecting the node",
@@ -6753,8 +6759,8 @@ future<join_node_request_result> storage_service::join_node_request_handler(join
                     .reason = "The node requested to join before but didn't finish the procedure. "
                               "Please clear the data directory and restart.",
                 };
+                co_return result;
             }
-            co_return result;
         }
 
         if (params.replaced_id) {
@@ -6873,9 +6879,13 @@ future<join_node_response_result> storage_service::join_node_response_handler(jo
                 // repair/streaming failure, wait here until we see normal nodes
                 // as UP (or the timeout elapses).
                 auto sync_nodes = _topology_state_machine._topology.normal_nodes | std::views::keys
-                             | std::ranges::views::filter([ignored_ids] (raft::server_id id) { return !ignored_ids.contains(id); })
+                             | std::ranges::views::filter([this, ignored_ids] (raft::server_id id) {
+                                   // We must filter out normal dead nodes during recovery.
+                                   return !ignored_ids.contains(id) && _group0->is_member(id, false);
+                               })
                              | std::views::transform([] (raft::server_id id) { return locator::host_id{id.uuid()}; })
                              | std::ranges::to<std::vector<locator::host_id>>();
+
                 rtlogger.info("coordinator accepted request to join, "
                         "waiting for nodes {} to be alive before responding and continuing",
                         sync_nodes);

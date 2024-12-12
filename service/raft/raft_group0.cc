@@ -616,18 +616,17 @@ future<> raft_group0::setup_group0_if_exist(db::system_keyspace& sys_ks, service
         co_return;
     }
 
-    if (!sys_ks.bootstrap_complete()) {
-        // If bootstrap did not complete yet, there is no group 0 to setup at this point
-        // -- it will be done after we start gossiping, in `setup_group0`.
+    auto group0_id = raft::group_id{co_await sys_ks.get_raft_group0_id()};
+    if (!group0_id) {
+        // There is no group 0 so we are bootstrapping or recovering from group 0 majority loss.
+        // We will set up group 0 after we start gossiping, in `setup_group0`.
         // Because of this we already want to disable schema pulls so they're done exclusively
         // through group 0 from the first moment we join the cluster.
-        group0_log.info("Disabling migration_manager schema pulls because Raft is enabled and we're bootstrapping.");
+        group0_log.info("Disabling migration_manager schema pulls because Raft is enabled but group 0 is not present yet.");
         co_await mm.disable_schema_pulls();
         co_return;
     }
 
-    auto group0_id = raft::group_id{co_await sys_ks.get_raft_group0_id()};
-    if (group0_id) {
         // Group 0 ID is present => we've already joined group 0 earlier.
         group0_log.info("setup_group0: group 0 ID present. Starting existing Raft server.");
         co_await start_server_for_group0(group0_id, ss, qp, mm, false);
@@ -645,16 +644,6 @@ future<> raft_group0::setup_group0_if_exist(db::system_keyspace& sys_ks, service
         } else {
             // We'll disable them once we complete the upgrade procedure.
         }
-    } else {
-        // Scylla has bootstrapped earlier but group 0 ID not present. This means we're upgrading.
-        // Upgrade will start through a feature listener created after we enter NORMAL state.
-        //
-        // See `raft_group0::finish_setup_after_join`.
-        upgrade_log.info(
-            "setup_group0: Scylla bootstrap completed before but group 0 ID not present."
-            " Internal upgrade-to-raft procedure will automatically start after every node finishes"
-            " upgrading to the new Scylla version.");
-    }
 }
 
 future<> raft_group0::setup_group0(
@@ -664,8 +653,8 @@ future<> raft_group0::setup_group0(
         co_return;
     }
 
-    if (sys_ks.bootstrap_complete()) {
-        // If the node is bootstrapped the group0 server should be setup already
+    if (co_await sys_ks.get_raft_group0_id()) {
+        // The group 0 server is already set up. We are restarting and not recovering from group 0 majority loss.
         co_return;
     }
 
@@ -906,8 +895,14 @@ future<> raft_group0::make_raft_config_nonvoter(const std::unordered_set<raft::s
 
         std::vector<raft::config_member> add;
         add.reserve(ids.size());
-        std::transform(ids.begin(), ids.end(), std::back_inserter(add),
-        [] (raft::server_id id) { return raft::config_member{{id, {}}, false}; });
+        // After creating new group 0, all dead nodes are not group 0 members anymore.
+        // We make all ignored nodes non-voters in the removenode handler, which would add
+        // them to the group 0 config without this change.
+        for (const auto& id: ids) {
+            if (is_member(id, false)) {
+                add.push_back(raft::config_member{{id, {}}, false});
+            }
+        }
 
         try {
             co_await _raft_gr.group0_with_timeouts().modify_config(std::move(add), {}, &as, timeout);
