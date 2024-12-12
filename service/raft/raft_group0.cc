@@ -646,6 +646,7 @@ future<> raft_group0::setup_group0_if_exist(db::system_keyspace& sys_ks, service
             // We'll disable them once we complete the upgrade procedure.
         }
     } else {
+        // TODO: new comment and log
         // Scylla has bootstrapped earlier but group 0 ID not present. This means we're upgrading.
         // Upgrade will start through a feature listener created after we enter NORMAL state.
         //
@@ -664,8 +665,8 @@ future<> raft_group0::setup_group0(
         co_return;
     }
 
-    if (sys_ks.bootstrap_complete()) {
-        // If the node is bootstrapped the group0 server should be setup already
+    if (sys_ks.bootstrap_complete() && !co_await sys_ks.get_scylla_local_param_as<sstring>("new_leader_ip")) {
+        // The group 0 server is already set up. We are restarting and not recovering from group 0 majority loss.
         co_return;
     }
 
@@ -906,8 +907,14 @@ future<> raft_group0::make_raft_config_nonvoter(const std::unordered_set<raft::s
 
         std::vector<raft::config_member> add;
         add.reserve(ids.size());
-        std::transform(ids.begin(), ids.end(), std::back_inserter(add),
-        [] (raft::server_id id) { return raft::config_member{{id, {}}, false}; });
+        // After creating new group 0, all dead nodes are not group 0 members anymore.
+        // We make all ignored nodes non-voters in the removenode handler, which would add
+        // them to the group 0 config without this change.
+        for (const auto& id: ids) {
+            if (is_member(id, false)) {
+                add.push_back(raft::config_member{{id, {}}, false});
+            }
+        }
 
         try {
             co_await _raft_gr.group0_with_timeouts().modify_config(std::move(add), {}, &as, timeout);
