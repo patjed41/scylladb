@@ -189,7 +189,7 @@ future<> gossiper::handle_syn_msg(msg_addr from, gossip_digest_syn syn_msg) {
     /* If the message is from a node with a different group0 id throw it away. */
     if (syn_msg.group0_id() && get_group0_id() && syn_msg.group0_id() != get_group0_id()) {
         logger.warn("Group0Id mismatch from {} {} != {}", from.addr, syn_msg.group0_id(), get_group0_id());
-        co_return;
+        //co_return;
     }
 
     if (syn_msg.partioner() != "" && syn_msg.partioner() != get_partitioner_name()) {
