@@ -285,7 +285,7 @@ async def check_node_log_for_failed_mutations(manager: ManagerClient, server: Se
     assert len(occurrences) == 0
 
 
-async def start_writes(cql: Session, rf: int, cl: ConsistencyLevel, concurrency: int = 3):
+async def start_writes(cql: Session, rf: int, cl: ConsistencyLevel, concurrency: int = 3, node_shutdowns: bool = False):
     logging.info(f"Starting to asynchronously write, concurrency = {concurrency}")
 
     stop_event = asyncio.Event()
@@ -307,6 +307,12 @@ async def start_writes(cql: Session, rf: int, cl: ConsistencyLevel, concurrency:
             try:
                 await cql.run_async(stmt)
                 write_count += 1
+            except NoHostAvailable as e:
+                for _, err in e.errors.items():
+                    # ConnectionException can be raised when the node is shutting down.
+                    if not node_shutdowns or not isinstance(err, ConnectionException):
+                        logger.error(f"Write started {time.time() - start_time}s ago failed: {e}")
+                        raise
             except Exception as e:
                 logging.error(f"Write started {time.time() - start_time}s ago failed: {e}")
                 raise
