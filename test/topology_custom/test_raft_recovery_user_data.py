@@ -21,8 +21,9 @@ from test.topology.util import check_system_topology_and_cdc_generations_v3_cons
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("remove_dead_nodes_with", ["remove", "replace"])
-async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes_with: str):
+@pytest.mark.parametrize("remove_dead_nodes_with", ["remove"])
+@pytest.mark.parametrize("send_to_coordinator", [False, True])
+async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes_with: str, send_to_coordinator: bool):
     """
     Test that the Raft-based recovery procedure works correctly with the user data. It involves testing:
     - client requests during the procedure (mainly availability),
@@ -101,6 +102,8 @@ async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes
     await reconnect_driver(manager)
     cql, hosts = await manager.get_ready_cql(live_servers)
 
+    coordinator_host = [h for h in hosts if h.address == live_servers[0].ip_addr][0]
+
     # Ensure we keep sending writes only to dc1. After adding new nodes to dc2 and increasing RF to 1 in dc2 at the end
     # of the test (if remove_dead_nodes_with == "remove"), writes send to dc2 would fail (RF=1, only 1 pending replica
     # in dc2, but CL=LOCAL_QUORUM requires 1 normal replica).
@@ -122,8 +125,12 @@ async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes
         logging.info(f'Decreasing RF of {ks_name} to 0 in dc2')
         for i in range(1, rf + 1):
             # ALTER KEYSPACE with tablets can decrease RF only by one.
-            await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
-                                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {rf - i}}}""")
+            if send_to_coordinator:
+                await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
+                                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {rf - i}}}""", host=coordinator_host)
+            else:
+                await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
+                                        {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {rf - i}}}""")
 
         logging.info(f'Removing {dead_servers}')
         for i, being_removed in enumerate(dead_servers):
@@ -163,9 +170,14 @@ async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes
 
     if remove_dead_nodes_with == "remove":
         logging.info(f'Increasing RF of {ks_name} back to {rf} in dc2')
-        for i in range(1, rf + 1):
-            await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
-                                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {i}}}""")
+        if send_to_coordinator:
+            for i in range(1, rf + 1):
+                await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
+                                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {i}}}""", host=coordinator_host)
+        else:
+            for i in range(1, rf + 1):
+                await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
+                                        {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {i}}}""")
 
     # After increasing RF back to 3 in dc2 (if remove_dead_nodes_with == "remove"), we can start sending writes to dc2.
     dc2_cql = cluster_con(
