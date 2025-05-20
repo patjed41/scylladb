@@ -19,6 +19,6 @@ def remove_dead_nodes(ssh: paramiko.SSHClient, nodetool: NodetoolHelper, host_id
         nodetool: NodetoolHelper instance to use for nodetool operations.
         host_ids: List of host IDs to remove from the cluster.
     """
-    logger.info(f"Removing nodes: {host_ids} using provided SSH session and nodetool at {helper.nodetool_path}")
+    logger.debug(f"Removing nodes: {host_ids} using provided SSH session and nodetool at {nodetool.nodetool_path}")
     for host_id in host_ids:
         nodetool.remove_dead_node(ssh, host_id)
