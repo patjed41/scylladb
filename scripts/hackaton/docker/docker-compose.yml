@@ -1,0 +1,85 @@
+services:
+
+  scylla-node1:
+    container_name: scylla-node1
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
+      - "./scylla/mutant-data.txt:/mutant-data.txt"
+    networks:
+      web:
+
+  scylla-node2:
+    container_name: scylla-node2
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
+    depends_on:
+      - scylla-node1
+    networks:
+      web:
+
+  scylla-node3:
+    container_name: scylla-node3
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc2:/etc/scylla/cassandra-rackdc.properties"
+
+    depends_on:
+      - scylla-node1
+    networks:
+      web:
+
+  scylla-node4:
+    container_name: scylla-node4
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc2:/etc/scylla/cassandra-rackdc.properties"
+
+    depends_on:
+      - scylla-node1
+    networks:
+      web:
+
+  scylla-node5:
+    container_name: scylla-node5
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc3:/etc/scylla/cassandra-rackdc.properties"
+    depends_on:
+      - scylla-node1
+    networks:
+      web:
+
+  scylla-node6:
+    container_name: scylla-node6
+    image: scylla:local
+    restart: no
+    command: --seeds=scylla-node1 --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc3:/etc/scylla/cassandra-rackdc.properties"
+    depends_on:
+      - scylla-node1
+    networks:
+      web:
+
+
+networks:
+  web:
+    driver: bridge
