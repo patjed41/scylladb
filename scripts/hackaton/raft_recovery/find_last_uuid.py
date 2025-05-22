@@ -16,10 +16,10 @@ def find_newest_timeuuid(timeuids):
     newest_timeuuid = None
     newest_timestamp = -1
 
-    for tu_str in timeuids:
+    for uuid_host_pair in timeuids:
         try:
             # Parse the TimeUUID string into a UUID object
-            tu_obj = uuid.UUID(tu_str)
+            tu_obj = uuid.UUID(uuid_host_pair[0])
 
             # Check if it's a TimeUUID (version 1)
             if tu_obj.version == 1:
@@ -31,11 +31,11 @@ def find_newest_timeuuid(timeuids):
 
                 if timestamp > newest_timestamp:
                     newest_timestamp = timestamp
-                    newest_timeuuid = tu_str
+                    newest_timeuuid = uuid_host_pair
             else:
-                print(f"Warning: '{tu_str}' is not a version 1 (Time) UUID and will be skipped.")
+                print(f"Warning: '{uuid_host_pair}' is not a version 1 (Time) UUID and will be skipped.")
         except ValueError:
-            print(f"Warning: Invalid UUID string '{tu_str}' will be skipped.")
+            print(f"Warning: Invalid UUID string '{uuid_host_pair}' will be skipped.")
 
     return newest_timeuuid
 

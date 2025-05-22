@@ -43,7 +43,7 @@ def restart_scylla_in_recovery_mode(nodes, recovery_leader_id):
     """
     # Determine the leader node IP based on the recovery_leader_id
     leader_node = next(
-        (node for node in nodes if node.node_id == recovery_leader_id), None)
+        (node for node in nodes if node.host_id == recovery_leader_id), None)
     if not leader_node:
         print(
             f"Leader node with ID {recovery_leader_id} not found in the nodes list.")
@@ -70,7 +70,7 @@ def restart_scylla_in_recovery_mode(nodes, recovery_leader_id):
             subprocess.run(
                 [
                     "ssh", node.ip,
-                    f"echo '{recovery_yaml_content}' | sudo tee /scylla.d/recovery.yaml"
+                    f"echo '{recovery_yaml_content}' | sudo tee /etc/scylla.d/recovery.yaml"
                 ],
                 check=True
             )

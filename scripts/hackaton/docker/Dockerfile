@@ -9,6 +9,8 @@ RUN apt-get update \
  && echo "root:root" | chpasswd \
  && apt-get clean
 
+RUN sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config \
+ && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 RUN pip3 install --break-system-packages --no-cache-dir traceback_with_variables
 RUN pip3 install --prefix=/usr --break-system-packages --no-cache-dir supervisor

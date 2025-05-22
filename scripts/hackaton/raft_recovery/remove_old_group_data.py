@@ -7,7 +7,7 @@ def get_group0_id(cql) -> str:
 
 
 # Needs to be called in the main script before restarting with recovery_leader set.
-old_group_id = get_group0_id(cql)
+# old_group_id = get_group0_id(cql)
 
 
 def clean_node(cql, host: Host, group_id: str) -> None:
@@ -16,8 +16,7 @@ def clean_node(cql, host: Host, group_id: str) -> None:
     cql.execute(f'DELETE FROM system.raft_snapshot_config WHERE group_id = {group_id}', host=host)
 
 
-def delete_old_raft_group_data(cql, live_nodes, group_id) -> None:
+def delete_old_raft_group_data(cql, group_id) -> None:
     hosts = cql.cluster.metadata.all_hosts()
-    for node in live_nodes:
-        host = [h for h in hosts if h.address == node.ip][0]
+    for host in hosts:
         clean_node(cql, host, group_id)
