@@ -47,6 +47,6 @@ if __name__ == "__main__":
     old_group_id = get_group0_id(cql=cql_session)
     step7(session=cql_session, live_node_hosts=hosts)
     restart_scylla_in_recovery_mode(nodes=alive_nodes, recovery_leader_id=leader_id)
-    remove_dead_nodes(ssh=ssh, nodetool=nodetool, host_ids=[node.ip for node in dead_nodes], logger=logger)
+    remove_dead_nodes(nodetool=nodetool, host_ids=[node.ip for node in dead_nodes], logger=logger)
     delete_old_raft_group_data(cql=cql_session, group_id=old_group_id)
 
