@@ -5,14 +5,14 @@ import logging
 
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
-from scripts.hackaton.raft_recovery.ssh_helper import create_ssh_client
-from scripts.hackaton.raft_recovery.find_last_uuid import find_newest_timeuuid
-from scripts.hackaton.raft_recovery.nodetool_helper import NodetoolHelper
-from scripts.hackaton.raft_recovery.query_history import get_latest_state_ids
-from scripts.hackaton.raft_recovery.remove_dead_nodes import remove_dead_nodes
-from scripts.hackaton.raft_recovery.remove_old_group_data import get_group0_id, delete_old_raft_group_data
-from scripts.hackaton.raft_recovery.step7 import step7
-from scripts.hackaton.raft_recovery.steps_8_9 import restart_scylla_in_recovery_mode
+from raft_recovery.ssh_helper import create_ssh_client
+from raft_recovery.find_last_uuid import find_newest_timeuuid
+from raft_recovery.nodetool_helper import NodetoolHelper
+from raft_recovery.query_history import get_latest_state_ids
+from raft_recovery.remove_dead_nodes import remove_dead_nodes
+from raft_recovery.remove_old_group_data import get_group0_id, delete_old_raft_group_data
+from raft_recovery.step7 import step7
+from raft_recovery.steps_8_9 import restart_scylla_in_recovery_mode
 
 
 def get_cql_session(username=None, password=None, contact_points: list=None):
