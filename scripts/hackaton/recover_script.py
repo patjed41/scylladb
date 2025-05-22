@@ -43,10 +43,17 @@ if __name__ == "__main__":
 
     latest_state_ids = get_latest_state_ids(session=cql_session)
     latest_id, leader_id = find_newest_timeuuid(latest_state_ids)
-    hosts = cql_session.cluster.metadata.all_hosts()
-    old_group_id = get_group0_id(cql=cql_session)
-    step7(session=cql_session, live_node_hosts=hosts)
-    restart_scylla_in_recovery_mode(nodes=alive_nodes, recovery_leader_id=leader_id)
-    remove_dead_nodes(nodetool=nodetool, host_ids=[node.ip for node in dead_nodes], logger=logger)
-    delete_old_raft_group_data(cql=cql_session, group_id=old_group_id)
+    hosts = [host for host in cql_session.cluster.metadata.all_hosts() if host.is_up is not None and host.is_up]
 
+    old_group_id = get_group0_id(cql=cql_session)
+
+    print(f"{latest_state_ids=}")
+    print(f"{old_group_id=}")
+    # leader_id = 'aef9c41e-9e71-4292-91a5-8dba9e573cc8'
+    # old_group_id = 'a9c5ce20-36ec-11f0-bc0e-81530525a7cc'
+
+    step7(session=cql_session, live_node_hosts=hosts)
+    restart_scylla_in_recovery_mode(nodes=alive_nodes, recovery_leader_id=str(leader_id))
+    remove_dead_nodes(nodetool=nodetool, host_ids=[node.host_id for node in dead_nodes], logger=logger)
+    delete_old_raft_group_data(cql=cql_session, group_id=old_group_id, hosts=hosts)
+    print("Recovery procedure completed successfully.")

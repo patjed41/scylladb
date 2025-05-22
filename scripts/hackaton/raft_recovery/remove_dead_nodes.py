@@ -16,5 +16,5 @@ def remove_dead_nodes(nodetool: NodetoolHelper, host_ids: List[str], logger: log
         logger: Logger instance to use for logging.
     """
     logger.debug(f"Removing nodes: {host_ids} using provided SSH session and nodetool at {nodetool.nodetool_path}")
-    for host_id in host_ids:
-        nodetool.remove_dead_node(host_id)
+    for i, host_id in enumerate(host_ids):
+        nodetool.remove_dead_node(host_id, ignore_hosts=host_ids[i + 1:])

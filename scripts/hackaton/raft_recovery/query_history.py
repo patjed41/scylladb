@@ -31,4 +31,4 @@ def query_scylla_group0_history(session=None, host=None):
 
 def get_latest_state_ids(session):
     hosts = session.cluster.metadata.all_hosts()
-    return [query_scylla_group0_history(session, host) for host in hosts]
+    return [pair for pair in [query_scylla_group0_history(session, host) for host in hosts] if pair is not None]

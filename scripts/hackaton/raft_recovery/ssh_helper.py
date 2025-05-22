@@ -28,7 +28,14 @@ def create_ssh_client(ip: str, ssh_user: str, ssh_key_path: Optional[str] = None
     if ssh_key_path:
         ssh.connect(ip, username=ssh_user, key_filename=ssh_key_path)
     else:
-        password = getpass.getpass(f"Enter SSH password for {ssh_user}@{ip}: ")
-        ssh.connect(ip, username=ssh_user, password=password)
+        # password = getpass.getpass(f"Enter SSH password for {ssh_user}@{ip}: ")
+        password = 'root'
+        ssh.connect(
+            ip,
+            username=ssh_user,
+            password=password,
+            allow_agent=False,
+            look_for_keys=False
+        )
     logger.info(f"SSH connection established to {ip}")
     return ssh
