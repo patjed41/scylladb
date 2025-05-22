@@ -38,45 +38,45 @@ def restart_scylla_in_recovery_mode(nodes, recovery_leader_id):
     and then starts the other nodes.
 
     Args:
-        nodes (list): List of dictionaries containing node information (status, node_id, node_ip).
+        nodes (list): List of SimpleNamespace objects containing node information (status, node_id, ip).
         recovery_leader_id (str): Recovery leader ID to be added as a config parameter.
     """
     # Determine the leader node IP based on the recovery_leader_id
     leader_node = next(
-        (node for node in nodes if node['node_id'] == recovery_leader_id), None)
+        (node for node in nodes if node.node_id == recovery_leader_id), None)
     if not leader_node:
         print(
             f"Leader node with ID {recovery_leader_id} not found in the nodes list.")
         return
-    leader_ip = leader_node['node_ip']
+    leader_ip = leader_node.ip
 
     for node in nodes:
         try:
-            print(f"Stopping ScyllaDB on node {node['node_ip']}...")
+            print(f"Stopping ScyllaDB on node {node.ip}...")
             subprocess.run(
-                ["ssh", node['node_ip'], "sudo systemctl stop scylla-server"],
+                ["ssh", node.ip, "sudo systemctl stop scylla-server"],
                 check=True
             )
         except subprocess.CalledProcessError as e:
             print(
-                f"Error stopping ScyllaDB on node {node['node_ip']}: {e}")
+                f"Error stopping ScyllaDB on node {node.ip}: {e}")
             return
 
     for node in nodes:
         try:
             print(
-                f"Adding recovery.yaml file on node {node['node_ip']}...")
+                f"Adding recovery.yaml file on node {node.ip}...")
             recovery_yaml_content = f"recovery_leader: {recovery_leader_id}\n"
             subprocess.run(
                 [
-                    "ssh", node['node_ip'],
+                    "ssh", node.ip,
                     f"echo '{recovery_yaml_content}' | sudo tee /scylla.d/recovery.yaml"
                 ],
                 check=True
             )
         except subprocess.CalledProcessError as e:
             print(
-                f"Error adding recovery.yaml on node {node['node_ip']}: {e}")
+                f"Error adding recovery.yaml on node {node.ip}: {e}")
             return
 
     try:
@@ -93,23 +93,23 @@ def restart_scylla_in_recovery_mode(nodes, recovery_leader_id):
         return
 
     for node in nodes:
-        if node['node_ip'] == leader_ip:
+        if node.ip == leader_ip:
             continue
         try:
-            print(f"Starting ScyllaDB on node {node['node_ip']}...")
+            print(f"Starting ScyllaDB on node {node.ip}...")
             subprocess.run(
-                ["ssh", node['node_ip'], "sudo systemctl start scylla-server"],
+                ["ssh", node.ip, "sudo systemctl start scylla-server"],
                 check=True
             )
         except subprocess.CalledProcessError as e:
             print(
-                f"Error starting ScyllaDB on node {node['node_ip']}: {e}")
+                f"Error starting ScyllaDB on node {node.ip}: {e}")
             continue
 
     # Verify all nodes are alive
     for node in nodes:
-        if node['node_ip'] == leader_ip:
+        if node.ip == leader_ip:
             continue
 
-        if not wait_for_node_to_start(node['node_ip']):
-            print(f"Node {node['node_ip']} failed to start.")
+        if not wait_for_node_to_start(node.ip):
+            print(f"Node {node.ip} failed to start.")
