@@ -3680,6 +3680,8 @@ future<bool> topology_coordinator::maybe_run_upgrade() {
 }
 
 future<> topology_coordinator::run() {
+    rtlogger.set_level(log_level::trace);
+    locator::tablet_logger.set_level(log_level::trace);
     auto abort = _as.subscribe([this] () noexcept {
         _topo_sm.event.broadcast();
     });
