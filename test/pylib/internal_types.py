@@ -35,6 +35,6 @@ class ServerInfo(NamedTuple):
 
 class ServerUpState(IntEnum):
     PROCESS_STARTED = auto()
-    HOST_ID_QUERIED = auto()
+    REST_API_SERVING = auto()
     CQL_CONNECTED = auto()
     CQL_QUERIED = auto()

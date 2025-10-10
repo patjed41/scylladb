@@ -711,10 +711,13 @@ class ScyllaServer:
             caslog.setLevel(oldlevel)
         # Any other exception may indicate a problem, and is passed to the caller.
 
-    async def try_get_host_id(self, api: ScyllaRESTAPIClient) -> Optional[HostID]:
-        """Try to get the host id (also tests Scylla REST API is serving)"""
+    async def try_get_host_id(self, api: ScyllaRESTAPIClient, via_api: bool = False) -> Optional[HostID]:
+        """Try to get the host id.
 
-        if hasattr(self, "_host_id"):
+        Can be used to check if Scylla is serving the REST API with via_api set to True.
+        """
+
+        if not via_api and hasattr(self, "_host_id"):
             return self._host_id
         try:
             self._host_id = await api.get_host_id(self.ip_addr)
@@ -799,9 +802,10 @@ class ScyllaServer:
                         await report_error("the node startup failed, but the log file doesn't contain the expected error")
                 await report_error("failed to start the node")
 
-            if await self.try_get_host_id(api):
+            # TODO: maybe replace this with new check_rest_api()? Maybe we don't have to set HOST ID here.
+            if await self.try_get_host_id(api, True):
                 if server_up_state == ServerUpState.PROCESS_STARTED:
-                    server_up_state = ServerUpState.HOST_ID_QUERIED
+                    server_up_state = ServerUpState.REST_API_SERVING
                 server_up_state = await self.get_cql_up_state() or server_up_state
                 if server_up_state == expected_server_up_state:
                     if expected_error is not None:
@@ -1351,7 +1355,7 @@ class ScyllaCluster:
         # Starting may fail and if we didn't add it now it might leak.
         self.running[server_id] = server
         if not connect_driver:
-            expected_server_up_state = min(expected_server_up_state, ServerUpState.HOST_ID_QUERIED)
+            expected_server_up_state = min(expected_server_up_state, ServerUpState.REST_API_SERVING)
 
         def instance_auth_provider(desc: dict):
             module_path, class_name = desc["authenticator"].rsplit('.', 1)

@@ -36,7 +36,7 @@ async def test_auth_password_ensured(manager: ManagerClient) -> None:
         'authenticator': "com.scylladb.auth.TransitionalAuthenticator",
         'error_injections_at_startup': ['password_authenticator_start_pause'],
     }
-    server = await manager.server_add(config=config, expected_server_up_state=ServerUpState.HOST_ID_QUERIED, connect_driver=False)
+    server = await manager.server_add(config=config, expected_server_up_state=ServerUpState.REST_API_SERVING, connect_driver=False)
 
     logging.info("Waiting until PasswordAuthenticator pauses on the injected error")
     server_log = await manager.server_open_log(server.server_id)
