@@ -27,6 +27,12 @@ lowres_clock::duration group0_state_id_handler::get_refresh_interval(const repli
 }
 
 void group0_state_id_handler::refresh() {
+    slogger.info("Code change works");
+    if (_gossiper.get_recovery_leader()) {
+        slogger.info("Skipping in the Raft-based recovery procedure");
+        return;
+    }
+
     auto* const group0_server = _server_accessor.get_server();
     if (!group0_server) {
         slogger.debug("Skipping due to group0 server not found");
