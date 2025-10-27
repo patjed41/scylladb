@@ -1329,6 +1329,9 @@ future<> server_impl::applier_fiber() {
 
     try {
         while (true) {
+            if (!is_leader()) {
+                co_await sleep(100ms);
+            }
             auto v = co_await _apply_entries.pop_eventually();
 
             co_await std::visit(make_visitor(
