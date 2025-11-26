@@ -520,6 +520,25 @@
          ]
       },
       {
+         "path":"/storage_service/host_id_to_ip_map",
+         "operations":[
+            {
+               "method":"GET",
+               "summary":"Retrieve the mapping of host ID to IP of all nodes. Nodes with no IP are assigned empty IP.",
+               "type":"array",
+               "items":{
+                  "type":"mapper"
+               },
+               "nickname":"get_host_id_to_ip_map",
+               "produces":[
+                  "application/json"
+               ],
+               "parameters":[
+               ]
+            }
+         ]
+      },
+      {
          "path":"/storage_service/load",
          "operations":[
             {

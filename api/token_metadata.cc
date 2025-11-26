@@ -117,6 +117,20 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
             | std::ranges::to<std::vector<ss::mapper>>();
     });
 
+    ss::get_host_id_to_ip_map.set(r, [&tm, &g](const_req req) {
+        if (!g.local().is_enabled()) {
+            throw std::runtime_error("The gossiper is not ready yet");
+        }
+        return tm.local().get()->get_host_ids()
+            | std::views::transform([&g] (locator::host_id id) {
+                ss::mapper m;
+                m.key = fmt::to_string(id);
+                m.value = fmt::to_string(g.local().get_address_map().find(id).value_or(gms::inet_address{}));
+                return m;
+            })
+            | std::ranges::to<std::vector<ss::mapper>>();
+    });
+
     static auto host_or_broadcast = [&tm](const_req req) {
         auto host = req.get_query_param("host");
         return host.empty() ? tm.local().get()->get_topology().my_address() : gms::inet_address(host);
@@ -162,6 +176,7 @@ void unset_token_metadata(http_context& ctx, routes& r) {
     ss::get_joining_nodes.unset(r);
     ss::get_excluded_nodes.unset(r);
     ss::get_host_id_map.unset(r);
+    ss::get_host_id_to_ip_map.unset(r);
     httpd::endpoint_snitch_info_json::get_datacenter.unset(r);
     httpd::endpoint_snitch_info_json::get_rack.unset(r);
 }
