@@ -14,6 +14,8 @@
 
 using namespace seastar::httpd;
 
+extern logging::logger apilog;
+
 namespace api {
 
 namespace ss = httpd::storage_service_json;
@@ -56,6 +58,8 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
             // to be replaced with the same IP address earlier.
             if (auto ip = g.local().get_address_map().find(host_id); ip) {
                 eps.insert(*ip);
+            } else if (!local_tm.get_topology().get_node(host_id).is_excluded()) {
+                apilog.error("get_leaving_nodes: IP address for leaving node {} is missing; ignoring the node", host_id);
             }
         }
         return eps | std::views::transform([] (auto& i) { return fmt::to_string(i); }) | std::ranges::to<std::vector>();
@@ -86,6 +90,8 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
             // IP of a joining node should never be missing, but don't crash here just in case.
             if (auto ip = g.local().get_address_map().find(host_id); ip) {
                 eps.insert(*ip);
+            } else {
+                apilog.error("get_joining_nodes: IP address for joining node {} is missing; ignoring the node", host_id);
             }
         }
         return eps | std::views::transform([] (auto& i) { return fmt::to_string(i); }) | std::ranges::to<std::vector>();
