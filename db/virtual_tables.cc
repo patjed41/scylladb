@@ -88,19 +88,17 @@ public:
 
             gossiper.for_each_endpoint_state([&] (const gms::endpoint_state& eps) {
                 static thread_local auto s = build_schema();
-                auto endpoint = eps.get_host_id();
+                auto hostid = eps.get_host_id();
                 mutation m(s, partition_key::from_single_value(*s, data_value(eps.get_ip()).serialize_nonnull()));
                 row& cr = m.partition().clustered_row(*schema(), clustering_key::make_empty()).cells();
 
-                auto hostid = eps.get_host_id();
-
                 set_cell(cr, "up", gossiper.is_alive(hostid));
-                if (!ss.raft_topology_change_enabled() || gossiper.is_shutdown(endpoint)) {
-                    set_cell(cr, "status", gossiper.get_gossip_status(endpoint));
+                if (!ss.raft_topology_change_enabled() || gossiper.is_shutdown(hostid)) {
+                    set_cell(cr, "status", gossiper.get_gossip_status(hostid));
                 }
-                set_cell(cr, "load", gossiper.get_application_state_value(endpoint, gms::application_state::LOAD));
+                set_cell(cr, "load", gossiper.get_application_state_value(hostid, gms::application_state::LOAD));
 
-                if (ss.raft_topology_change_enabled() && !gossiper.is_shutdown(endpoint)) {
+                if (ss.raft_topology_change_enabled() && !gossiper.is_shutdown(hostid)) {
                     set_cell(cr, "status", boost::to_upper_copy<std::string>(fmt::format("{}", ss.get_node_state(hostid))));
                 }
                 set_cell(cr, "host_id", hostid.uuid());
