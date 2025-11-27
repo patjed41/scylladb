@@ -49,6 +49,9 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
     });
 
     ss::get_leaving_nodes.set(r, [&tm, &g](const_req req) {
+        if (!g.local().is_enabled()) {
+            throw std::runtime_error("The gossiper is not ready yet");
+        }
         const auto& local_tm = *tm.local().get();
         const auto& leaving_host_ids = local_tm.get_leaving_endpoints();
         std::unordered_set<gms::inet_address> eps;
@@ -82,6 +85,9 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
     });
 
     ss::get_joining_nodes.set(r, [&tm, &g](const_req req) {
+        if (!g.local().is_enabled()) {
+            throw std::runtime_error("The gossiper is not ready yet");
+        }
         const auto& local_tm = *tm.local().get();
         const auto& points = local_tm.get_bootstrap_tokens();
         std::unordered_set<gms::inet_address> eps;
