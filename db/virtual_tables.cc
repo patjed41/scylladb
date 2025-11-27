@@ -83,13 +83,15 @@ public:
             auto ownership = co_await ss.get_ownership();
             const locator::token_metadata& tm = ss.get_token_metadata();
 
+            auto nodes = tm.get_topology().get_nodes();
             utils::chunked_vector<frozen_mutation> muts;
-            muts.reserve(gossiper.num_endpoints());
+            muts.reserve(nodes.size());
 
-            gossiper.for_each_endpoint_state([&] (const gms::endpoint_state& eps) {
+            for (const auto node : nodes) {
                 static thread_local auto s = build_schema();
-                auto hostid = eps.get_host_id();
-                mutation m(s, partition_key::from_single_value(*s, data_value(eps.get_ip()).serialize_nonnull()));
+                auto hostid = node.get().host_id();
+                auto ip = gossiper.get_address_map().find(hostid).value_or(gms::inet_address{});
+                mutation m(s, partition_key::from_single_value(*s, data_value(ip).serialize_nonnull()));
                 row& cr = m.partition().clustered_row(*schema(), clustering_key::make_empty()).cells();
 
                 set_cell(cr, "up", gossiper.is_alive(hostid));
@@ -103,20 +105,17 @@ public:
 
                 set_cell(cr, "host_id", hostid.uuid());
 
-                if (tm.get_topology().has_node(hostid)) {
-                    // Not all entries in gossiper are present in the topology
-                    sstring dc = tm.get_topology().get_location(hostid).dc;
-                    set_cell(cr, "dc", dc);
-                }
+                sstring dc = node.get().dc_rack().dc;
+                set_cell(cr, "dc", dc);
 
-                if (ownership.contains(eps.get_ip())) {
-                    set_cell(cr, "owns", ownership[eps.get_ip()]);
+                if (ownership.contains(ip)) {
+                    set_cell(cr, "owns", ownership[ip]);
                 }
 
                 set_cell(cr, "tokens", int32_t(tm.get_tokens(hostid).size()));
 
                 muts.push_back(freeze(std::move(m)));
-            });
+            };
 
             co_return muts;
         });
