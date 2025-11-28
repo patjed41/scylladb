@@ -2742,6 +2742,8 @@ class topology_coordinator : public endpoint_lifecycle_subscriber {
                 co_await await_event();
                 break;
             case topology::transition_state::left_token_ring: {
+                co_await utils::get_local_injector().inject("topology_coordinator_pause_in_left_token_ring", 5min, _as);
+
                 auto node = get_node_to_work_on(std::move(guard));
 
                 auto finish_left_token_ring_transition = [&](node_to_work_on& node) -> future<> {
