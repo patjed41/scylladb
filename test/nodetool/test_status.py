@@ -265,11 +265,11 @@ def _do_test_status(request, nodetool, status_query_target, node_list, resolve=N
                     expected_request("GET", f"/storage_service/ownership/{keyspace}", params={"cf": table},
                                      response=ownership_response))
 
-    for ep, node in nodes.items():
+    for node in node_list:
         expected_requests += [
-            expected_request("GET", "/snitch/datacenter", params={"host": ep}, multiple=expected_request.ANY,
+            expected_request("GET", "/snitch/datacenter", params={"host": node.host_id}, multiple=expected_request.ANY,
                              response=node.datacenter),
-            expected_request("GET", "/snitch/rack", params={"host": ep}, multiple=expected_request.ANY,
+            expected_request("GET", "/snitch/rack", params={"host": node.host_id}, multiple=expected_request.ANY,
                              response=node.rack),
         ]
 

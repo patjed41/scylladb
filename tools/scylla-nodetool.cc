@@ -2492,8 +2492,8 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
     }
 
     for (const auto& [host_id, ep] : host_id_endpoint) {
-        const auto dc = sstring(rjson::to_string_view(client.get("/snitch/datacenter", {{"host", ep}})));
-        const auto rack = sstring(rjson::to_string_view(client.get("/snitch/rack", {{"host", ep}})));
+        const auto dc = sstring(rjson::to_string_view(client.get("/snitch/datacenter", {{"host", host_id}})));
+        const auto rack = sstring(rjson::to_string_view(client.get("/snitch/rack", {{"host", host_id}})));
         host_id_rack.emplace(host_id, rack);
         dc_host_ids[dc].insert(host_id);
     }
