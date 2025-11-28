@@ -30,7 +30,7 @@ class NodeState(Enum):
 class Node(NamedTuple):
     endpoint: str
     host_id: str
-    load: int
+    load: int | None
     tokens: list[str]
     datacenter: str
     rack: str
@@ -97,8 +97,14 @@ def validate_status_output(res, keyspace, nodes, ownership, resolve, effective_o
                 assert ep in name_to_ep
                 ep = name_to_ep[ep]
 
-            assert ep in dc_eps
-            dc_eps.remove(ep)
+            endpoint_unknown = True if ep == "?" else False
+            if endpoint_unknown:
+                assert "::" in dc_eps
+                dc_eps.remove("::")
+                ep = "::"
+            else:
+                assert ep in dc_eps
+                dc_eps.remove(ep)
 
             node = nodes[ep]
 
@@ -112,7 +118,7 @@ def validate_status_output(res, keyspace, nodes, ownership, resolve, effective_o
                 tokens == "?"
             else:
                 assert int(tokens) == len(node.tokens)
-            if effective_ownership_unknown:
+            if effective_ownership_unknown or endpoint_unknown:
                 assert owns == "?"
             else:
                 assert owns == "{:.1f}%".format(float(ownership[ep]) * 100)
@@ -205,7 +211,7 @@ def _do_test_status(request, nodetool, status_query_target, node_list, resolve=N
 
     load_map = [{"key": ep, "value": node.load} for ep, node in nodes.items() if node.load is not None]
 
-    host_id_map = [{"key": ep, "value": node.host_id} for ep, node in nodes.items() if node.host_id is not None]
+    host_id_map = [{"key": node.host_id, "value": ep} for ep, node in nodes.items() if node.host_id is not None]
 
     tokens_endpoint_params = {}
     if keyspace_uses_tablets and table:
@@ -231,7 +237,7 @@ def _do_test_status(request, nodetool, status_query_target, node_list, resolve=N
                          response=tokens_endpoint),
         expected_request("GET", "/gossiper/endpoint/live", response=live),
         expected_request("GET", "/gossiper/endpoint/down", response=down),
-        expected_request("GET", "/storage_service/host_id", response=host_id_map),
+        expected_request("GET", "/storage_service/host_id_to_ip_map", response=host_id_map),
     ]
 
     if keyspace is None:
@@ -555,4 +561,88 @@ def test_status_negative_load(request, nodetool):
     ]
 
     status_target = StatusQueryTarget(keyspace="ks", table=None, uses_tablets=False)
+    _do_test_status(request, nodetool, status_target, nodes)
+
+
+def test_status_missing_ip(request, nodetool):
+    # TODO: Test more than one node with no IP once nodetool status uses APIs based on host IDs. We can't do it
+    # currently because, for example, the result of /storage_service/load_map can contain at most one entry
+    # corresponding to a node with no IP.
+    # Also, Node.endpoint should become optional, and the testing functions should be based on host IDs.
+    nodes = [
+        Node(
+            endpoint="127.0.0.1",
+            host_id="78a9c1d0-b341-467e-a076-9eff4cf7ffc6",
+            load=206015,
+            tokens=["-9175818098208185248", "-3983536194780899528"],
+            datacenter="datacenter1",
+            rack="rack1",
+            status=NodeStatus.Up,
+            state=NodeState.Normal,
+        ),
+        Node(
+            endpoint="127.0.0.2",
+            host_id="ed341f60-b12a-4fd4-9917-e80977ded0f9",
+            load=277624,
+            tokens=["-1810801828328238220", "2983536194780899528"],
+            datacenter="datacenter1",
+            rack="rack2",
+            status=NodeStatus.Down,
+            state=NodeState.Normal,
+        ),
+        Node(
+            endpoint="::",
+            host_id="1e77eb26-a372-4eb4-aeaa-72f224cf6b4c",
+            load=None,
+            tokens=[],
+            datacenter="datacenter1",
+            rack="rack3",
+            status=NodeStatus.Excluded,
+            state=NodeState.Normal,
+        ),
+    ]
+
+    _do_test_status(request, nodetool, None, nodes)
+
+
+@pytest.mark.parametrize("uses_tablets", (False, True))
+@pytest.mark.parametrize("table", (None, "cf"))
+def test_status_keyspace_missing_ip(request, nodetool, uses_tablets, table):
+    if request.config.getoption("nodetool") == "cassandra" and (uses_tablets or table):
+        pytest.skip("skipping tablets-related test with Cassandra nodetool")
+
+    nodes = [
+        Node(
+            endpoint="127.0.0.1",
+            host_id="78a9c1d0-b341-467e-a076-9eff4cf7ffc6",
+            load=206015,
+            tokens=["-9175818098208185248", "-3983536194780899528"],
+            datacenter="datacenter1",
+            rack="rack1",
+            status=NodeStatus.Unknown,
+            state=NodeState.Joining,
+        ),
+        Node(
+            endpoint="127.0.0.2",
+            host_id="ed341f60-b12a-4fd4-9917-e80977ded0f9",
+            load=277624,
+            tokens=["-1810801828328238220", "2983536194780899528"],
+            datacenter="datacenter1",
+            rack="rack2",
+            status=NodeStatus.Up,
+            state=NodeState.Normal,
+        ),
+        Node(
+            endpoint="::",
+            host_id="1e77eb26-a372-4eb4-aeaa-72f224cf6b4c",
+            load=None,
+            tokens=[],
+            datacenter="datacenter1",
+            rack="rack3",
+            status=NodeStatus.Excluded,
+            state=NodeState.Normal,
+        ),
+    ]
+
+    status_target = StatusQueryTarget(keyspace="ks", table=table, uses_tablets=uses_tablets)
     _do_test_status(request, nodetool, status_target, nodes)

@@ -2473,8 +2473,8 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
         ? std::map<sstring, float>{}
         : get_effective_ownership(client, *keyspace, table);
 
-    std::unordered_map<sstring, sstring> endpoint_rack;
-    std::map<sstring, std::set<sstring>> dc_endpoints;
+    std::unordered_map<sstring, sstring> host_id_rack;
+    std::map<sstring, std::set<sstring>> dc_host_ids;
     std::unordered_map<sstring, size_t> endpoint_tokens;
     std::unordered_map<sstring, sstring> tokens_endpoint_params;
     if (tablets_keyspace && table) {
@@ -2483,7 +2483,7 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
     }
     const auto tokens_endpoint_res = client.get("/storage_service/tokens_endpoint", std::move(tokens_endpoint_params));
 
-    const auto endpoint_host_id = rjson_to_map<sstring>(client.get("/storage_service/host_id"));
+    const auto host_id_endpoint = rjson_to_map<sstring>(client.get("/storage_service/host_id_to_ip_map"));
 
     for (const auto& te : tokens_endpoint_res.GetArray()) {
         const auto ep = sstring(rjson::to_string_view(te["value"]));
@@ -2491,16 +2491,16 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
         ++endpoint_tokens[ep];
     }
 
-    for (const auto& [ep, host_id] : endpoint_host_id) {
+    for (const auto& [host_id, ep] : host_id_endpoint) {
         const auto dc = sstring(rjson::to_string_view(client.get("/snitch/datacenter", {{"host", ep}})));
         const auto rack = sstring(rjson::to_string_view(client.get("/snitch/rack", {{"host", ep}})));
-        endpoint_rack.emplace(ep, rack);
-        dc_endpoints[dc].insert(ep);
+        host_id_rack.emplace(host_id, rack);
+        dc_host_ids[dc].insert(host_id);
     }
 
     const bool token_count_unknown = tablets_keyspace && !table;
 
-    for (const auto& [dc, endpoints] : dc_endpoints) {
+    for (const auto& [dc, host_ids] : dc_host_ids) {
         const auto dc_header = fmt::format("Datacenter: {}", dc);
         fmt::print("{}\n", dc_header);
         fmt::print("{}\n", std::string(dc_header.size(), '='));
@@ -2512,40 +2512,42 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
         } else {
             table.add("--", "Address", "Load", "Tokens", "Owns", "Host ID", "Rack");
         }
-        for (const auto& ep : endpoints) {
+        for (const auto& host_id : host_ids) {
+            const auto ep = host_id_endpoint.at(host_id) == fmt::to_string(gms::inet_address{}) ?
+                    std::nullopt : std::optional<sstring>{host_id_endpoint.at(host_id)};
             char state;
             sstring status;
-            if (endpoint_host_id.contains(ep) && excluded.contains(endpoint_host_id.at(ep))) {
+            if (excluded.contains(host_id)) {
                 status = "X";
-                if (live.contains(ep)) {
+                if (ep && live.contains(*ep)) {
                     status = "XU"; // Should not happen, but when it does, we better know.
                 }
-            } else if (live.contains(ep)) {
+            } else if (ep && live.contains(*ep)) {
                 status = "U";
-            } else if (down.contains(ep)) {
+            } else if (ep && down.contains(*ep)) {
                 status = "D";
             } else {
                 status = "?";
             }
-            if (joining.contains(ep)) {
+            if (ep && joining.contains(*ep)) {
                 state = 'J';
-            } else if (leaving.contains(ep)) {
+            } else if (ep && leaving.contains(*ep)) {
                 state = 'L';
-            } else if (moving.contains(ep)) {
+            } else if (ep && moving.contains(*ep)) {
                 state = 'M';
             } else {
                 state = 'N';
             }
-            sstring address = resolve_ips ? net::dns::resolve_addr(net::inet_address(ep)).get() : ep;
-            const std::string load = endpoint_load.contains(ep) ? fmt::to_string(file_size_printer(endpoint_load.at(ep))) : "?";
+            sstring address = !ep ? "?" : (resolve_ips ? net::dns::resolve_addr(net::inet_address(*ep)).get() : *ep);
+            const std::string load = ep && endpoint_load.contains(*ep) ? fmt::to_string(file_size_printer(endpoint_load.at(*ep))) : "?";
             table.add(
                     fmt::format("{}{}", status, state),
                     address,
                     load,
-                    token_count_unknown ? "?" : fmt::to_string(endpoint_tokens.contains(ep) ? endpoint_tokens.at(ep) : 0),
-                    !is_effective_ownership_unknown ? format("{:.1f}%", endpoint_ownership.at(ep) * 100) : "?",
-                    endpoint_host_id.contains(ep) ? endpoint_host_id.at(ep) : "?",
-                    endpoint_rack.at(ep));
+                    token_count_unknown ? "?" : fmt::to_string(ep && endpoint_tokens.contains(*ep) ? endpoint_tokens.at(*ep) : 0),
+                    !is_effective_ownership_unknown && ep ? format("{:.1f}%", endpoint_ownership.at(*ep) * 100) : "?",
+                    host_id,
+                    host_id_rack.at(host_id));
         }
         table.print();
     }
