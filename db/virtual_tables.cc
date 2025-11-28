@@ -95,12 +95,12 @@ public:
                 set_cell(cr, "up", gossiper.is_alive(hostid));
                 if (!ss.raft_topology_change_enabled() || gossiper.is_shutdown(hostid)) {
                     set_cell(cr, "status", gossiper.get_gossip_status(hostid));
-                }
-                set_cell(cr, "load", gossiper.get_application_state_value(hostid, gms::application_state::LOAD));
-
-                if (ss.raft_topology_change_enabled() && !gossiper.is_shutdown(hostid)) {
+                } else {
                     set_cell(cr, "status", boost::to_upper_copy<std::string>(fmt::format("{}", ss.get_node_state(hostid))));
                 }
+
+                set_cell(cr, "load", gossiper.get_application_state_value(hostid, gms::application_state::LOAD));
+
                 set_cell(cr, "host_id", hostid.uuid());
 
                 if (tm.get_topology().has_node(hostid)) {
