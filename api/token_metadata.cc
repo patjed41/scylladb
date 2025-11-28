@@ -52,7 +52,11 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
         std::unordered_set<gms::inet_address> eps;
         eps.reserve(leaving_host_ids.size());
         for (const auto host_id: leaving_host_ids) {
-            eps.insert(g.local().get_address_map().get(host_id));
+            // IP can be missing for excluded leaving nodes. One example is a node that is being removed and has failed
+            // to be replaced with the same IP address earlier.
+            if (auto ip = g.local().get_address_map().find(host_id); ip) {
+                eps.insert(*ip);
+            }
         }
         return eps | std::views::transform([] (auto& i) { return fmt::to_string(i); }) | std::ranges::to<std::vector>();
     });
@@ -79,7 +83,10 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
         std::unordered_set<gms::inet_address> eps;
         eps.reserve(points.size());
         for (const auto& [token, host_id]: points) {
-            eps.insert(g.local().get_address_map().get(host_id));
+            // IP of a joining node should never be missing, but don't crash here just in case.
+            if (auto ip = g.local().get_address_map().find(host_id); ip) {
+                eps.insert(*ip);
+            }
         }
         return eps | std::views::transform([] (auto& i) { return fmt::to_string(i); }) | std::ranges::to<std::vector>();
     });
@@ -91,7 +98,7 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
         return tm.local().get()->get_host_ids()
             | std::views::transform([&g] (locator::host_id id) {
                 ss::mapper m;
-                m.key = fmt::to_string(g.local().get_address_map().get(id));
+                m.key = fmt::to_string(g.local().get_address_map().find(id).value_or(gms::inet_address{}));
                 m.value = fmt::to_string(id);
                 return m;
             })

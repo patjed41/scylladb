@@ -155,7 +155,7 @@ describe_ring_endpoint_info get_describe_ring_endpoint_info(host_id endpoint, co
     auto& loc = topology.get_node(endpoint).dc_rack();
     return describe_ring_endpoint_info{
         .details = dht::endpoint_details{
-            ._host = gossiper.get_address_map().get(endpoint),
+            ._host = gossiper.get_address_map().find(endpoint).value_or(gms::inet_address{}),
             ._datacenter = loc.dc,
             ._rack = loc.rack,
         },

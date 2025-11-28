@@ -2387,7 +2387,7 @@ storage_service::get_range_to_address_map(sstring keyspace, std::optional<table_
 
     co_return (co_await locator::get_range_to_address_map(erm, std::move(tokens))) |
         std::views::transform([&] (auto tid) { return std::make_pair(tid.first,
-                tid.second | std::views::transform([&] (auto id) { return _address_map.get(id); }) | std::ranges::to<inet_address_vector_replica_set>()); }) |
+                tid.second | std::views::transform([&] (auto id) { return _address_map.find(id).value_or(gms::inet_address{}); }) | std::ranges::to<inet_address_vector_replica_set>()); }) |
         std::ranges::to<std::unordered_map>();
 }
 
@@ -3641,7 +3641,7 @@ future<std::map<gms::inet_address, float>> storage_service::get_ownership() {
         for (auto entry : token_map) {
             locator::host_id id = tm.get_endpoint(entry.first).value();
             auto token_ownership = entry.second;
-            ownership[_address_map.get(id)] += token_ownership;
+            ownership[_address_map.find(id).value_or(gms::inet_address{})] += token_ownership;
         }
         return ownership;
     });
@@ -3723,10 +3723,10 @@ future<std::map<gms::inet_address, float>> storage_service::effective_ownership(
                             ownership += loc->second;
                         }
                     }
-                    final_ownership[ss._address_map.find(endpoint).value()] = ownership;
+                    final_ownership[ss._address_map.find(endpoint).value_or(gms::inet_address{})] = ownership;
                 }  catch (replica::no_such_keyspace&) {
                     // In case ss.get_ranges_for_endpoint(keyspace_name, endpoint) is not found, just mark it as zero and continue
-                    final_ownership[ss._address_map.find(endpoint).value()] = 0;
+                    final_ownership[ss._address_map.find(endpoint).value_or(gms::inet_address{})] = 0;
                 }
             }
         }
@@ -5716,10 +5716,10 @@ std::map<token, inet_address> storage_service::get_token_to_endpoint_map() {
     const auto& tm = get_token_metadata();
     std::map<token, inet_address> result;
     for (const auto [t, id]: tm.get_token_to_endpoint()) {
-        result.insert({t, _address_map.get(id)});
+        result.insert({t, _address_map.find(id).value_or(gms::inet_address{})});
     }
     for (const auto [t, id]: tm.get_bootstrap_tokens()) {
-        result.insert({t, _address_map.get(id)});
+        result.insert({t, _address_map.find(id).value_or(gms::inet_address{})});
     }
     return result;
 }
@@ -5729,7 +5729,8 @@ future<std::map<token, inet_address>> storage_service::get_tablet_to_endpoint_ma
     const auto& tmap = tm.tablets().get_tablet_map(table);
     std::map<token, inet_address> result;
     for (std::optional<locator::tablet_id> tid = tmap.first_tablet(); tid; tid = tmap.next_tablet(*tid)) {
-        result.emplace(tmap.get_last_token(*tid), _address_map.get(tmap.get_primary_replica(*tid, tm.get_topology()).host));
+        result.emplace(tmap.get_last_token(*tid), _address_map.find(
+                tmap.get_primary_replica(*tid, tm.get_topology()).host).value_or(gms::inet_address{}));
         co_await coroutine::maybe_yield();
     }
     co_return result;
@@ -7931,7 +7932,7 @@ storage_service::get_natural_endpoints(const sstring& keyspace, const schema_ptr
     } else {
         replicas = ks.get_static_effective_replication_map()->get_natural_replicas(token);
     }
-    return replicas | std::views::transform([&] (locator::host_id id) { return _address_map.get(id); }) | std::ranges::to<inet_address_vector_replica_set>();
+    return replicas | std::views::transform([&] (locator::host_id id) { return _address_map.find(id).value_or(gms::inet_address{}); }) | std::ranges::to<inet_address_vector_replica_set>();
 }
 
 future<> endpoint_lifecycle_notifier::notify_down(gms::inet_address endpoint, locator::host_id hid) {
