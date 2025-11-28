@@ -2492,9 +2492,6 @@ void status_operation(scylla_rest_client& client, const bpo::variables_map& vm) 
     }
 
     for (const auto& [ep, host_id] : endpoint_host_id) {
-        if (endpoint_rack.contains(ep)) {
-            continue;
-        }
         const auto dc = sstring(rjson::to_string_view(client.get("/snitch/datacenter", {{"host", ep}})));
         const auto rack = sstring(rjson::to_string_view(client.get("/snitch/rack", {{"host", ep}})));
         endpoint_rack.emplace(ep, rack);
