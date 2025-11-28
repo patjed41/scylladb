@@ -131,18 +131,23 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
             | std::ranges::to<std::vector<ss::mapper>>();
     });
 
-    static auto host_or_broadcast = [&tm](const_req req) {
+    static auto get_host_id = [&tm, &g](const_req req) -> std::optional<locator::host_id> {
         auto host = req.get_query_param("host");
-        return host.empty() ? tm.local().get()->get_topology().my_address() : gms::inet_address(host);
+        try {
+            return locator::host_id(utils::UUID(host));
+        } catch (...) {
+            try {
+                auto ip = host.empty() ? tm.local().get()->get_topology().my_address() : gms::inet_address(host);
+                return g.local().get_host_id(ip);
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
     };
 
-    httpd::endpoint_snitch_info_json::get_datacenter.set(r, [&tm, &g](const_req req) {
+    httpd::endpoint_snitch_info_json::get_datacenter.set(r, [&tm](const_req req) {
         auto& topology = tm.local().get()->get_topology();
-        auto ep = host_or_broadcast(req);
-        std::optional<locator::host_id> host_id;
-        try {
-            host_id = g.local().get_host_id(ep);
-        } catch (...) {}
+        auto host_id = get_host_id(req);
         if (!host_id || !topology.has_node(*host_id)) {
             // Cannot return error here, nodetool status can race, request
             // info about just-left node and not handle it nicely
@@ -151,13 +156,9 @@ void set_token_metadata(http_context& ctx, routes& r, sharded<locator::shared_to
         return topology.get_datacenter(*host_id);
     });
 
-    httpd::endpoint_snitch_info_json::get_rack.set(r, [&tm, &g](const_req req) {
+    httpd::endpoint_snitch_info_json::get_rack.set(r, [&tm](const_req req) {
         auto& topology = tm.local().get()->get_topology();
-        auto ep = host_or_broadcast(req);
-        std::optional<locator::host_id> host_id;
-        try {
-            host_id = g.local().get_host_id(ep);
-        } catch (...) {}
+        auto host_id = get_host_id(req);
         if (!host_id || !topology.has_node(*host_id)) {
             // Cannot return error here, nodetool status can race, request
             // info about just-left node and not handle it nicely

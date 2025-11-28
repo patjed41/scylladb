@@ -12,7 +12,7 @@
          "operations":[
             {
                "method":"GET",
-               "summary":"Provides the Datacenter name depending on the respective snitch used, given the hostname/ip",
+               "summary":"Provides the Datacenter name depending on the respective snitch used, given the hostname/ip/id",
                "type":"string",
                "nickname":"get_datacenter",
                "produces":[
@@ -21,7 +21,7 @@
                "parameters":[
                   {
                      "name":"host",
-                     "description":"The host name. If absent, the local server broadcast/listen address is used",
+                     "description":"The host name/ip/id. If absent, the local server broadcast/listen address is used",
                      "required":false,
                      "allowMultiple":false,
                      "type":"string",
@@ -36,7 +36,7 @@
          "operations":[
             {
                "method":"GET",
-               "summary":"Provides the Rack name depending on the respective snitch used, given the host name/ip",
+               "summary":"Provides the Rack name depending on the respective snitch used, given the host name/ip/id",
                "type":"string",
                "nickname":"get_rack",
                "produces":[
@@ -45,7 +45,7 @@
                "parameters":[
                   {
                      "name":"host",
-                     "description":"The host name. If absent, the local server broadcast/listen address is used",
+                     "description":"The host name/ip/id. If absent, the local server broadcast/listen address is used",
                      "required":false,
                      "allowMultiple":false,
                      "type":"string",
