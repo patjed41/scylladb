@@ -400,7 +400,7 @@ def test_status_no_keyspace_multi_dc(request, nodetool):
         ),
         Node(
             endpoint="127.2.0.2",
-            host_id="1e77eb26-a372-4eb4-aeaa-72f224cf6b4c",
+            host_id="f47ac10b-58cc-4372-a567-0e02b2c3d479",
             load=353236,
             tokens=["8810801828328238220", "9810801828328238220"],
             datacenter="datacenter2",
@@ -451,7 +451,7 @@ def test_status_keyspace_multi_dc(request, nodetool, uses_tablets, table):
         ),
         Node(
             endpoint="127.2.0.2",
-            host_id="1e77eb26-a372-4eb4-aeaa-72f224cf6b4c",
+            host_id="f47ac10b-58cc-4372-a567-0e02b2c3d479",
             load=353236,
             tokens=["8810801828328238220", "9810801828328238220"],
             datacenter="datacenter2",
