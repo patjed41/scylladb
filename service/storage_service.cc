@@ -489,6 +489,8 @@ future<> storage_service::raft_topology_update_ip(locator::host_id id, gms::inet
             }
         }
         break;
+        case node_state::replacing:
+            [[fallthrough]];
         case node_state::bootstrapping:
             if (!is_me(ip)) {
                 utils::get_local_injector().inject("crash-before-bootstrapping-node-added", [] {
