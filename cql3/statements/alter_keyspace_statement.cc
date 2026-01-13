@@ -158,15 +158,19 @@ cql3::statements::alter_keyspace_statement::prepare_schema_mutations(query_proce
         // TODO: the current `if (changes_tablets(qp))` is insufficient: someone may set the same RFs as before,
         //       and we'll unnecessarily trigger the processing path for ALTER tablets KS,
         //       when in reality nothing or only schema is being changed
+        mylogger.info("alter_keyspace_statement::prepare_schema_mutations 1");
         if (changes_tablets(qp)) {
+            mylogger.info("alter_keyspace_statement::prepare_schema_mutations 2");
             if (!qp.proxy().features().topology_global_request_queue && !qp.topology_global_queue_empty()) {
                 co_await coroutine::return_exception(
                     exceptions::invalid_request_exception("Another global topology request is ongoing, please retry."));
             }
             if (qp.proxy().features().rack_list_rf && co_await qp.ongoing_rf_change(mc.guard(),_name)) {
+                mylogger.info("alter_keyspace_statement::prepare_schema_mutations 3");
                 co_await coroutine::return_exception(
                         exceptions::invalid_request_exception(format("Another RF change for this keyspace {} ongoing, please retry.", _name)));
             }
+            mylogger.info("alter_keyspace_statement::prepare_schema_mutations 4");
             qp.db().real_database().validate_keyspace_update(*ks_md_update);
 
             service::topology_mutation_builder builder(ts);

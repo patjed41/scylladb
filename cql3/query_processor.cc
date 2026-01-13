@@ -1092,11 +1092,16 @@ future<> query_processor::announce_schema_statement(const statements::schema_alt
     }
     auto alter_ks_stmt_ptr = dynamic_cast<const statements::alter_keyspace_statement*>(&stmt);
     if (alter_ks_stmt_ptr && alter_ks_stmt_ptr->changes_tablets(*this)) {
+        log.info("query_processor::announce_schema_statement 1");
         auto request_id = guard.new_group0_state_id();
+        log.info("query_processor::announce_schema_statement 2");
         co_await remote_.get().mm.announce<service::topology_change>(std::move(m), std::move(guard), description);
         // TODO: eliminate timeout from alter ks statement on the cqlsh/driver side
+        log.info("query_processor::announce_schema_statement 3");
         auto error = co_await remote_.get().ss.wait_for_topology_request_completion(request_id);
+        log.info("query_processor::announce_schema_statement 4");
         co_await remote_.get().ss.wait_for_topology_not_busy();
+        log.info("query_processor::announce_schema_statement 5");
         if (!error.empty()) {
             log.error("CQL statement \"{}\" with topology request_id \"{}\" failed with error: \"{}\"", stmt.raw_cql_statement, request_id, error);
             throw exceptions::request_execution_exception(exceptions::exception_code::INVALID, error);

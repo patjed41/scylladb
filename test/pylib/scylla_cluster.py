@@ -175,7 +175,7 @@ SCYLLA_CMDLINE_OPTIONS = [
     '--abort-on-seastar-bad-alloc',
     '--abort-on-internal-error', '1',
     '--abort-on-ebadf', '1',
-    '--logger-log-level', 'raft_topology=debug',
+    '--logger-log-level', 'raft_topology=trace',
     '--logger-log-level', 'query_processor=debug',
     '--logger-log-level', 'group0_raft_sm=trace',
 ]
