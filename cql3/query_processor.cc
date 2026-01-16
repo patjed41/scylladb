@@ -574,10 +574,12 @@ query_processor::execute_maybe_with_guard(service::query_state& query_state, ::s
 
 future<::shared_ptr<result_message>>
 query_processor::execute_direct_without_checking_exception_message(const std::string_view& query_string, service::query_state& query_state, dialect d, query_options& options) {
-    log.trace("execute_direct: \"{}\"", query_string);
     tracing::trace(query_state.get_trace_state(), "Parsing a statement");
     auto p = get_statement(query_string, query_state.get_client_state(), d);
     auto statement = p->statement;
+    if (statement->needs_guard(*this, query_state)) {
+        log.info("execute_direct: \"{}\"", query_string);
+    }
     if (statement->get_bound_terms() != options.get_values_count()) {
         const auto msg = format("Invalid amount of bind variables: expected {:d} received {:d}",
                 statement->get_bound_terms(),

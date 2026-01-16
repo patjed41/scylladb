@@ -150,8 +150,10 @@ async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes
         logging.info(f'Decreasing RF of {ks_name} to 0 in dc2')
         for i in range(1, rf + 1):
             # ALTER KEYSPACE with tablets can decrease RF only by one.
-            await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
-                                {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {rf - i}}}""")
+            stmt = f"""ALTER KEYSPACE {ks_name} WITH replication =
+                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {rf - i}}}"""
+            logging.info(f'Executing: {stmt}')
+            await cql.run_async(stmt)
 
         logging.info(f'Removing {dead_servers}')
         for i, being_removed in enumerate(dead_servers):
@@ -194,8 +196,10 @@ async def test_raft_recovery_user_data(manager: ManagerClient, remove_dead_nodes
     if remove_dead_nodes_with == "remove":
         logging.info(f'Increasing RF of {ks_name} back to {rf} in dc2')
         for i in range(1, rf + 1):
-            await cql.run_async(f"""ALTER KEYSPACE {ks_name} WITH replication =
-                                {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {i}}}""")
+            stmt = f"""ALTER KEYSPACE {ks_name} WITH replication =
+                    {{'class': 'NetworkTopologyStrategy', 'dc1': {rf}, 'dc2': {i}}}"""
+            logging.info(f'Executing: {stmt}')
+            await cql.run_async(stmt)
 
     # After increasing RF back to 3 in dc2 (if remove_dead_nodes_with == "remove"), we can start sending writes to dc2.
     ccluster_dc2 = cluster_con(
