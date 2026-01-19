@@ -106,7 +106,7 @@ def pytest_runtest_makereport(item, call):
 
 
 conn_logger = logging.getLogger("conn_messages")
-conn_logger.setLevel(logging.INFO)
+conn_logger.setLevel(logging.DEBUG)
 
 class CustomConnection(Cluster.connection_class):
     def send_msg(self, *args, **argv):
