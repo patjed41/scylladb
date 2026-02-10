@@ -195,6 +195,8 @@ The command displays a table with: option name, effective service level the valu
               timeout |                     sl1 |          2s
 ```
 
+.. _service-levels-on-raft:
+
 ## Service levels on Raft
 
 Since ScyllaDB 6.0 and ScyllaDB Enterprise 2024.2, service levels metadata is managed by Raft group0 and stored in `system.service_levels_v2`.

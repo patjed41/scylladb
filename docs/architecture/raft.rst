@@ -20,6 +20,14 @@ ScyllaDB uses Raft to:
   applied to all nodes **in the same order**, even in the face of a node or network failures.
 * Manage cluster topology. All topology operations are consistently sequenced, making topology
   updates fast and safe.
+* Manage tablets. Operations on a single tablet are serialized. Operations on different
+  tablets are independent, and thus can be parallelized for for better performance. See
+  :doc:`Data Distribution with Tablets </architecture/tablets>` for more information about tablets.
+* Manage workload prioritization with service levels. See
+  :ref:`Service Levels on Raft <service-levels-on-raft>` for more information.
+* Manage authentication data. See :doc:`Authentication</operating-scylla/security/authentication>`
+  for more information about authentication.
+* Manage metadata of features such as CDC and Materialized Views.
 
 .. _raft-quorum-requirement:
 
