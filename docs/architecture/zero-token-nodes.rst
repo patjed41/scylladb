@@ -2,10 +2,11 @@
 Zero-token Nodes
 =========================
 
-By default, all nodes in a cluster own a set of token ranges and are used to
-replicate data. In certain circumstances, you may choose to add a node that
-doesn't own any token. Such nodes are referred to as zero-token nodes. They
-do not have a copy of the data but only participate in Raft quorum voting.
+By default, all nodes in a cluster own a set of token ranges and tablets and
+are used to replicate data. In certain circumstances, you may choose to add
+a node that doesn't own any token or tablet. Such nodes are referred to as
+zero-token nodes. They do not have a copy of the data but only participate
+in Raft quorum voting.
 
 To configure a zero-token node, set the ``join_ring`` parameter to ``false``.
 
