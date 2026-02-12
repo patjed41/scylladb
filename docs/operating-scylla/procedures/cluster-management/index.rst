@@ -83,7 +83,7 @@ Cluster Management Procedures
 
   * :doc:`Repair Based Node Operations (RBNO) </operating-scylla/procedures/cluster-management/repair-based-node-operation>`
 
-  * :doc:`Preventing Quorum Loss in Symmetrical Multi-DC Clusters <arbiter-dc>`
+  * :doc:`Preventing Quorum Loss in Two-DC Clusters <arbiter-dc>`
 
 .. panel-box::
   :title: Topology Changes

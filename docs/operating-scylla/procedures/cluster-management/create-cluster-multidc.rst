@@ -213,10 +213,9 @@ In this example, we will show how to install a nine nodes cluster.
 Preventing Quorum Loss
 --------------------------
 
-If your cluster is symmetrical, i.e., it has  an even number of datacenters
-with the same number of nodes, consider adding an arbiter DC to mitigate
+If your cluster has two datacenters, consider adding an arbiter DC to mitigate
 the risk of losing a quorum at a minimum cost.
-See :doc:`Preventing Quorum Loss in Symmetrical Multi-DC Clusters </operating-scylla/procedures/cluster-management/arbiter-dc>`
+See :doc:`Preventing Quorum Loss in Two-DC Clusters </operating-scylla/procedures/cluster-management/arbiter-dc>`
 for details.
 
 ------------

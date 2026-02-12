@@ -34,14 +34,35 @@ ScyllaDB uses Raft to:
 Quorum Requirement
 -------------------
 
-Raft requires at least a quorum of nodes in a cluster to be available. If multiple nodes fail
-and the quorum is lost, the cluster is unavailable for schema updates or topology changes. See :ref:`Handling Failures <raft-handling-failures>`
-for information on how to handle failures.
+Raft requires at least a quorum of current voters in a cluster to be available. If multiple voters fail
+and the quorum is lost, all features based on Raft, such as schema updates or topology changes, become unavailable.
+See :ref:`Handling Failures <raft-handling-failures>` for information on how to handle failures.
 
-Note that when you have a two-DC cluster with the same number of nodes in each DC, the cluster will lose the quorum if one
-of the DCs is down.
-**We recommend configuring three DCs per cluster to ensure that the cluster remains available and operational when one DC is down.**
-In the case of two-DC cluster with the same number of nodes in each DC, it is sufficient for the third DC to contain only one node.
+Raft voters
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Some of the Raft members are voters. These are the nodes that participate in the leader election, and can become the leader.
+A voter must receive votes from a majority of voters (including itself) to become the leader. Therefore, the leader cannot
+be elected if at least half of the voters are down, and quorum is lost.
+
+In the older versions of Scylla, all nodes were voters. That changed for two reasons:
+* Less voters means less network traffic in Raft, and better perfomance.
+* A good choice of voters allows to significantly reduce the risk of losing quorum, and Scylla tries its best to do that.
+  For example, if a voters goes down, a new voter is rapidly elected. Also, whenever possible, Scylla ensures that each
+  datacenter/rack contains less than half of the voters to prevent quorum loss in case of a rack-wide/datacenter-wide disaster.
+  This matters, for example, when one datacenter in a three-DC cluster has more nodes than the other two combined.
+
+The process of selecting and reassigning voters is fully automatic. Knowing about it is needed only for understanding the
+quorum requirement. For example, quorum is not lost when majority of nodes go down, and this majority contains minority
+of voters.
+
+Quorum loss in two-DC clusters
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Note that when you have a two-DC cluster, it's impossible to assign voters in a way that prevents quorum loss if one
+of the DCs is down. That's why
+**we recommend configuring three DCs per cluster to ensure that the cluster remains available and operational when one DC is down.**
+In the case of a two-DC cluster, it is sufficient for the third DC to contain only one node.
 That node can be configured with ``join_ring=false`` and run on a weaker machine.
 See :doc:`Configuration Parameters </reference/configuration-parameters/>` for details about the ``join_ring`` option.
 

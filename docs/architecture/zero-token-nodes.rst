@@ -11,7 +11,7 @@ To configure a zero-token node, set the ``join_ring`` parameter to ``false``.
 
 You can use zero-token nodes in multi-DC deployments to reduce the risk of
 losing a quorum of nodes.
-See :doc:`Preventing Quorum Loss in Symmetrical Multi-DC Clusters </operating-scylla/procedures/cluster-management/arbiter-dc>` for details.
+See :doc:`Preventing Quorum Loss in Two-DC Clusters </operating-scylla/procedures/cluster-management/arbiter-dc>` for details.
 
 Note that:
 
