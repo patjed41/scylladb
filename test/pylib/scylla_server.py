@@ -851,6 +851,10 @@ class ScyllaServer:
         env.update(self.append_env if append_env_override is None else append_env_override)
         env['UBSAN_OPTIONS'] = f'halt_on_error=1:abort_on_error=1:suppressions={TOP_SRC_DIR / "ubsan-suppressions.supp"}'
         env['ASAN_OPTIONS'] = f'disable_coredump=0:abort_on_error=1:detect_stack_use_after_return=1'
+        # LOCAL-ONLY (SCYLLADB-3852): let an experiment append ASAN options so the
+        # per-node memory overhead can be attributed. Not for merge.
+        if extra_asan := os.environ.get('SCYLLA_EXTRA_ASAN_OPTIONS'):
+            env['ASAN_OPTIONS'] += ':' + extra_asan
 
         # Set up socket for receiving sd_notify messages from Scylla
         self._setup_notify_socket()

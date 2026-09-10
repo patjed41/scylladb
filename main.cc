@@ -77,6 +77,9 @@
 #include "repair/row_level.hh"
 #include "vector_search/vector_store_client.hh"
 #include <cstdio>
+#include <cstring>
+#include <cerrno>
+#include <fcntl.h>
 #include <seastar/core/file.hh>
 #include <stdexcept>
 #include <unistd.h>
@@ -719,6 +722,162 @@ void dump_performance_profiles() {
     }
 }
 
+// ============================================================================
+// LOCAL-ONLY INSTRUMENTATION -- DO NOT MERGE (SCYLLADB-3852)
+//
+// Detects periods in which a shard's reactor makes no progress at all: a
+// periodic timer ticks every SCYLLA_HANG_TICK_MS (default 10ms) and, whenever
+// the wall-clock distance between two consecutive ticks exceeds
+// SCYLLA_HANG_THRESHOLD_MS (default 200ms), logs the gap together with:
+//   cpu=   thread CPU time consumed during the gap (CLOCK_THREAD_CPUTIME_ID)
+//   rq=    time the thread spent runnable-but-waiting on the kernel run queue
+//          (/proc/self/task/<tid>/schedstat field 2)
+//   ts=    number of timeslices the thread was given during the gap
+// Interpretation:
+//   cpu ~= gap            -> the reactor was busy in a long task (stall)
+//   rq  ~= gap            -> CPU starvation, the kernel did not schedule us
+//   cpu ~= 0 and rq ~= 0  -> blocked in the kernel (I/O, page fault) or never
+//                            woken up (timer/poll problem)
+// ============================================================================
+namespace hang_detector {
+
+static logging::logger hdlog("hang_detector");
+
+struct sample {
+    std::chrono::steady_clock::time_point wall;
+    std::chrono::nanoseconds cpu{0};
+    std::chrono::nanoseconds runqueue{0};
+    uint64_t timeslices = 0;
+    uint64_t nvcsw = 0;   // voluntary context switches (we blocked/slept)
+    uint64_t nivcsw = 0;  // involuntary context switches (we were preempted)
+};
+
+class shard_detector {
+    std::chrono::milliseconds _tick;
+    std::chrono::nanoseconds _threshold;
+    int _schedstat_fd = -1;
+    sample _prev;
+    seastar::timer<> _timer;
+    std::chrono::nanoseconds _max_gap{0};
+    int _report_fd = -1;   // optional side channel (SCYLLA_HANG_LOG), survives test log cleanup
+    sstring _tag;          // cwd + pid, identifies the node
+
+    static std::chrono::nanoseconds thread_cpu_now() {
+        struct timespec ts;
+        if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) {
+            return std::chrono::nanoseconds{0};
+        }
+        return std::chrono::seconds{ts.tv_sec} + std::chrono::nanoseconds{ts.tv_nsec};
+    }
+
+    void read_schedstat(sample& s) const {
+        if (_schedstat_fd < 0) {
+            return;
+        }
+        char buf[128];
+        auto n = ::pread(_schedstat_fd, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) {
+            return;
+        }
+        buf[n] = '\0';
+        unsigned long long cpu_ns = 0, rq_ns = 0, slices = 0;
+        if (std::sscanf(buf, "%llu %llu %llu", &cpu_ns, &rq_ns, &slices) == 3) {
+            s.runqueue = std::chrono::nanoseconds{rq_ns};
+            s.timeslices = slices;
+        }
+    }
+
+    sample take_sample() const {
+        sample s;
+        s.wall = std::chrono::steady_clock::now();
+        s.cpu = thread_cpu_now();
+        struct rusage ru;
+        if (::getrusage(RUSAGE_THREAD, &ru) == 0) {
+            s.nvcsw = ru.ru_nvcsw;
+            s.nivcsw = ru.ru_nivcsw;
+        }
+        read_schedstat(s);
+        return s;
+    }
+
+    void on_tick() {
+        auto now = take_sample();
+        auto gap = now.wall - _prev.wall;
+        if (gap > _threshold) {
+            auto ms = [] (auto d) {
+                return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(d).count();
+            };
+            hdlog.warn("no progress for {:.1f}ms (tick={}ms): cpu={:.1f}ms rq={:.1f}ms nvcsw={} nivcsw={} ts={} max_gap={:.1f}ms",
+                    ms(gap), _tick.count(), ms(now.cpu - _prev.cpu), ms(now.runqueue - _prev.runqueue),
+                    now.nvcsw - _prev.nvcsw, now.nivcsw - _prev.nivcsw,
+                    now.timeslices - _prev.timeslices, ms(std::max(_max_gap, gap)));
+        }
+        if (gap > _threshold && _report_fd >= 0) {
+            auto line = fmt::format("{:%Y-%m-%d %H:%M:%S} shard {} gap={:.1f}ms cpu={:.1f}ms rq={:.1f}ms"
+                    " nvcsw={} nivcsw={} ts={} {}\n",
+                    std::chrono::system_clock::now(), seastar::this_shard_id(),
+                    std::chrono::duration<double, std::milli>(gap).count(),
+                    std::chrono::duration<double, std::milli>(now.cpu - _prev.cpu).count(),
+                    std::chrono::duration<double, std::milli>(now.runqueue - _prev.runqueue).count(),
+                    now.nvcsw - _prev.nvcsw, now.nivcsw - _prev.nivcsw,
+                    now.timeslices - _prev.timeslices, _tag);
+            auto ignored = ::write(_report_fd, line.c_str(), line.size());
+            (void)ignored;
+        }
+        _max_gap = std::max(_max_gap, gap);
+        _prev = now;
+    }
+
+public:
+    shard_detector(std::chrono::milliseconds tick, std::chrono::milliseconds threshold)
+            : _tick(tick), _threshold(threshold), _timer([this] { on_tick(); }) {
+        auto path = fmt::format("/proc/self/task/{}/schedstat", ::gettid());
+        _schedstat_fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (_schedstat_fd < 0) {
+            hdlog.warn("cannot open {}: {}", path, std::strerror(errno));
+        }
+        if (const char* report = ::getenv("SCYLLA_HANG_LOG")) {
+            _report_fd = ::open(report, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+            if (_report_fd < 0) {
+                hdlog.warn("cannot open {}: {}", report, std::strerror(errno));
+            }
+        }
+        char cwd[256] = "?";
+        if (!::getcwd(cwd, sizeof(cwd))) {
+            cwd[0] = '?';
+            cwd[1] = '\0';
+        }
+        _tag = fmt::format("pid={} cwd={}", ::getpid(), cwd);
+        _prev = take_sample();
+        _timer.arm_periodic(_tick);
+    }
+};
+
+static void start() {
+    auto env_ms = [] (const char* name, long def) {
+        const char* v = ::getenv(name);
+        if (!v) {
+            return def;
+        }
+        char* end = nullptr;
+        auto parsed = std::strtol(v, &end, 10);
+        return (end && *end == '\0' && parsed > 0) ? parsed : def;
+    };
+    auto tick = std::chrono::milliseconds{env_ms("SCYLLA_HANG_TICK_MS", 10)};
+    auto threshold = std::chrono::milliseconds{env_ms("SCYLLA_HANG_THRESHOLD_MS", 200)};
+    if (::getenv("SCYLLA_HANG_DETECTOR_OFF")) {
+        return;
+    }
+    seastar::smp::invoke_on_all([tick, threshold] {
+        // leaked on purpose: lives for the whole process lifetime
+        new shard_detector(tick, threshold);
+    }).get();
+    hdlog.info("started (tick={}ms threshold={}ms)", tick.count(), threshold.count());
+}
+
+} // namespace hang_detector
+// ======================= END LOCAL-ONLY INSTRUMENTATION =====================
+
 static int scylla_main(int ac, char** av) {
     // Allow core dumps. The would be disabled by default if
     // CAP_SYS_NICE was added to the binary, as is suggested by the
@@ -884,6 +1043,7 @@ To start the scylla server proper, simply invoke as: scylla server (or just scyl
                 &token_metadata, &erm_factory, &snapshot_ctl, &messaging, &sst_dir_semaphore, &raft_gr, &service_memory_limiter,
                 &repair, &sst_loader, &auth_cache, &ss, &lifecycle_notifier, &stream_manager, &task_manager, &rpc_dict_training_worker, &vector_store_client] {
           try {
+              hang_detector::start(); // LOCAL-ONLY INSTRUMENTATION (SCYLLADB-3852)
               if (opts.contains("relabel-config-file") && !opts["relabel-config-file"].as<sstring>().empty()) {
                   // calling update_relabel_config_from_file can cause an exception that would stop startup
                   // that's on purpose, it means the configuration is broken and needs to be fixed
